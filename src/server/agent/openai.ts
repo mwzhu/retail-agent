@@ -11,6 +11,7 @@ import {
   type ModelMessage,
   type ModelToolCall,
 } from "./types";
+import { hasExplicitPromotionIntent } from "./intents";
 
 const TOOL_DEFINITIONS = [
   {
@@ -105,8 +106,9 @@ export function createOpenAIModelClient(input: Readonly<{
             model: input.model,
             messages: request.messages.map(toOpenAIMessage),
             tools: TOOL_DEFINITIONS,
-            tool_choice: "auto",
+            tool_choice: requiredToolChoice(request.messages),
             parallel_tool_calls: false,
+            temperature: 0,
             store: false,
           },
           { signal: request.signal },
@@ -129,6 +131,7 @@ export function createOpenAIModelClient(input: Readonly<{
             model: input.model,
             messages: request.messages.map(toOpenAIMessage),
             stream: true,
+            temperature: 0,
             store: false,
           },
           { signal: request.signal },
@@ -145,6 +148,63 @@ export function createOpenAIModelClient(input: Readonly<{
       }
     },
   };
+}
+
+export function selectToolChoice(
+  messages: readonly ModelMessage[],
+): "lookup_order" | "search_products" | "claim_early_risers" | "auto" | "none" {
+  const userMessages = messages.filter(
+    (message): message is Extract<ModelMessage, { kind: "text" }> =>
+      message.kind === "text" && message.role === "user",
+  );
+  const currentRequest = userMessages.at(-1)?.content;
+  if (currentRequest === undefined) return "none";
+
+  const userContext = userMessages
+    .map((message) => message.content)
+    .join("\n");
+  const completedTools = new Set(
+    messages
+      .filter((message) => message.kind === "tool_result")
+      .map((message) => message.name),
+  );
+  const orderNumberPattern = /(?:#\s*)?[A-Z](?:\s*\d){3,}\b/i;
+  const hasEmail = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(userContext);
+  const hasOrderNumber = orderNumberPattern.test(userContext);
+  const orderIntent = /\b(?:order|track|tracking)\b/i.test(currentRequest)
+    || (hasEmail && orderNumberPattern.test(currentRequest));
+  if (
+    orderIntent
+    && hasEmail
+    && hasOrderNumber
+    && !completedTools.has("lookup_order")
+  ) {
+    return "lookup_order";
+  }
+
+  const productIntent = /\b(?:recommend|product|catalog|gear|equipment|buy|price|cost|inventory|stock|carry|return|warranty|backpack|skis?|jetpack|cloak|lampshade|crampons)\b|\bSO[A-Z0-9]{5}\b/i;
+  if (productIntent.test(currentRequest) && !completedTools.has("search_products")) {
+    return "search_products";
+  }
+
+  const promotionIntent = hasExplicitPromotionIntent(currentRequest);
+  if (promotionIntent && !completedTools.has("claim_early_risers")) {
+    return "claim_early_risers";
+  }
+
+  const handledIntent = (orderIntent && completedTools.has("lookup_order"))
+    || (productIntent.test(currentRequest) && completedTools.has("search_products"))
+    || (/\bearly\s+risers\b/i.test(currentRequest) && (!promotionIntent || completedTools.has("claim_early_risers")));
+  if (handledIntent) return "none";
+
+  return "auto";
+}
+
+function requiredToolChoice(messages: readonly ModelMessage[]) {
+  const name = selectToolChoice(messages);
+  return name === "auto" || name === "none"
+    ? name
+    : { type: "function" as const, function: { name } };
 }
 
 function toOpenAIMessage(message: ModelMessage): ChatCompletionMessageParam {

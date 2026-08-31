@@ -6,6 +6,8 @@ import type {
 } from "../contracts";
 import type { ChatMessage, TurnErrorCode } from "../../shared/protocol";
 import { FINAL_RESPONSE_INSTRUCTION, SIERRA_SYSTEM_PROMPT } from "./prompt";
+import { hasExplicitPromotionIntent } from "./intents";
+import { summarizeProductDescription } from "../product-description";
 import {
   ModelClientError,
   type ChatApplication,
@@ -18,7 +20,7 @@ import {
 } from "./types";
 
 const MAX_HISTORY_MESSAGES = 20;
-const MAX_PLANNING_ROUNDS = 2;
+const MAX_PLANNING_ROUNDS = 3;
 const MAX_PRODUCT_RECORDS = 5;
 const PROMOTION_WINDOW: "8:00-10:00 AM Pacific" = "8:00-10:00 AM Pacific";
 
@@ -271,7 +273,7 @@ function projectProduct(product: ProductCard): ProductCard {
     name: product.name,
     inventory: product.inventory,
     tags: product.tags,
-    description: product.description.slice(0, 180),
+    description: summarizeProductDescription(product.description),
   };
 }
 
@@ -287,32 +289,6 @@ function claimPromotionWithExplicitIntent(input: Readonly<{
     conversationId: input.context.conversationId,
     now: input.now(),
   });
-}
-
-function hasExplicitPromotionIntent(content: string): boolean {
-  const promotion = "early\\s+risers(?:\\s+(?:promotion|promo|discount))?";
-  const directAction = new RegExp(
-    `\\b(?:claim|receive|redeem)\\s+(?:the\\s+)?${promotion}\\b`,
-    "i",
-  );
-  const giveToMe = new RegExp(
-    `\\b(?:give|send)\\s+me\\s+(?:the\\s+)?${promotion}\\b`,
-    "i",
-  );
-  const askToGet = new RegExp(
-    `\\b(?:can|could|may)\\s+i\\s+(?:get|claim|receive)\\s+(?:the\\s+)?${promotion}\\b`,
-    "i",
-  );
-  const statedDesire = new RegExp(
-    `\\bi(?:\\s+want|(?:'d|’d|\\s+would)\\s+like)\\s+(?:to\\s+(?:claim|receive|get)\\s+)?(?:the\\s+)?${promotion}\\b`,
-    "i",
-  );
-  return (
-    directAction.test(content) ||
-    giveToMe.test(content) ||
-    askToGet.test(content) ||
-    statedDesire.test(content)
-  );
 }
 
 function failedTerminal(code: TurnErrorCode, message: string): TurnTerminal {

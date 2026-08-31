@@ -4,10 +4,12 @@ The prompt has four jobs. It defines the Sierra Outfitters voice, forces grounde
 
 The first version emphasized outdoor enthusiasm. That instruction alone can make every sentence sound like marketing copy. The current prompt limits each response to one outdoor flourish while keeping the answer concise.
 
-The order rules require both email and order number. The model asks for missing values together and uses only the matched tool result. It does not reveal which identifier failed. A raw `error` status becomes a neutral statement that a reliable shipping status is unavailable.
+The order rules require both email and order number. The model asks only for missing values and uses the matched result. It does not reveal which identifier failed. A raw `error` status becomes a neutral statement that a reliable shipping status is unavailable.
 
-The product rules require catalog search before any answer about what to buy, gear, equipment, product qualities, or recommendations. The model receives no more than five records and cannot invent price, specifications, inventory, or SKUs. An empty result stays an honest catalog miss before any brief general guidance.
+The product rules require catalog search before any answer about what to buy, gear, equipment, product qualities, or recommendations. The model receives no more than five records and cannot invent prices, policies, specifications, inventory, or SKUs. An empty result stays an honest catalog miss before any brief general guidance.
 
-The promotion rules require an explicit current-turn request. Application code checks the Pacific window and issues the code. The model cannot provide the clock, conversation identity, or discount code as tool arguments.
+The promotion rules give the model the fixed percentage and Pacific hours for information-only answers. A claim requires an explicit current-turn request. Application code checks the Pacific window and issues the code. The model cannot provide the clock, conversation identity, or discount code as tool arguments.
+
+The OpenAI adapter forces a required order or product call when the current request and conversation contain enough information. It also prevents repeated calls after a capability has returned a result. The model still writes the answer, but privacy-critical lookups and catalog verification do not depend on a probabilistic routing decision.
 
 The final model call has no tools. It receives completed tool results and one instruction to answer the customer now. This keeps the streamed phase free of function-call states. The prompt requires plain text because the P0 client does not render Markdown.

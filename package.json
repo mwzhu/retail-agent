@@ -8,6 +8,7 @@
     "demo": "SIERRA_DEMO_MODE=1 npm run dev",
     "build": "tsc --noEmit && vite build",
     "start": "tsx src/server/index.ts",
+    "review:agent": "tsx scripts/run-agent-review.ts",
     "test": "vitest run",
     "verify": "npm run test && npm run build"
   },

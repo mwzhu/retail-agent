@@ -6,7 +6,7 @@ The route calls one `ChatApplication.openTurn` operation. That operation persist
 
 ## Why the final call streams
 
-Tool-selection calls do not stream. This avoids reconstructing fragmented function-call arguments from streamed protocol chunks. After at most two planning rounds, the agent makes one final call without tools and streams its text.
+Tool-selection calls do not stream. This avoids reconstructing fragmented function-call arguments from streamed protocol chunks. The agent makes at most three planning rounds, one per supported capability. It then makes one final call without tools and streams the response.
 
 This costs an additional call for a message that needs no tools. It buys a smaller state model and a clear guarantee that a streamed final answer cannot turn into another tool call.
 

@@ -2,7 +2,7 @@
 
 This project is a small customer-service agent for Sierra Outfitters. It streams responses in a web chat, persists completed conversations in SQLite, retrieves a bounded product set through FTS5, and uses direct OpenAI function calls for three customer tasks.
 
-## Run the first draft
+## Run the application
 
 Install the dependencies.
 
@@ -45,6 +45,14 @@ Run the deterministic tests and production build.
 npm run verify
 ```
 
+With an OpenAI-backed server running on port 3001, run the reusable adversarial review:
+
+```bash
+npm run review:agent -- --output=.audit/agent-review/my-run
+```
+
+The command runs 31 isolated scenarios and 33 model turns. It checks NDJSON ordering, exact stream persistence, fixture facts, privacy tripwires, input validation, and secret leakage. It writes `results.json` and a prompt-and-response catalog to the output directory. Language judgments remain marked for review instead of being counted as automatic passes. To rerun a subset, add `--ids=ORD-001,PRD-001`.
+
 Build the browser files and serve the complete application from Fastify.
 
 ```bash
@@ -56,11 +64,11 @@ Open `http://127.0.0.1:3001`.
 
 ## How one turn works
 
-The browser sends one `POST /api/chat` request and reads newline-delimited JSON from the response body. The server persists the user message before generation. The agent may run two non-streaming tool-planning rounds. It then makes one tool-disabled streaming call and forwards text deltas to the browser. The server persists the assistant message only after the final response completes.
+The browser sends one `POST /api/chat` request and reads newline-delimited JSON from the response body. The server persists the user message before generation. The agent may run three non-streaming tool-planning rounds, one for each supported capability. It then makes one tool-disabled streaming call and forwards text deltas to the browser. The server persists the assistant message only after the final response completes.
 
 If the connection or process stops during generation, the conversation keeps a pending user message. Reload the page and use **Retry**. P0 does not resume the interrupted token stream.
 
-The model never receives the complete product catalog. SQLite FTS5 retrieves no more than five products across the full turn. Exact SKU lookup bypasses text search. Product results contain only catalog facts.
+The model never receives the complete product catalog. SQLite FTS5 retrieves no more than five products across the full turn. Exact SKU lookup bypasses text search. Search drops common request words before building a safe FTS query, which prevents punctuation-heavy input from returning unrelated products. Product results contain only catalog facts.
 
 ## Persistence and data
 

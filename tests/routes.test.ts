@@ -125,4 +125,45 @@ describe("chat routes", () => {
       ],
     });
   });
+
+  it("rejects invalid chat payloads before creating a conversation", async () => {
+    const app = await testApp(createDemoModelClient());
+
+    for (const payload of [
+      { message: "   " },
+      { message: "x".repeat(4_001) },
+      { message: 42 },
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/api/chat", payload });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_request" });
+      expect(response.headers["content-type"]).not.toContain("application/x-ndjson");
+    }
+  });
+
+  it("returns bounded errors for missing conversations and invalid retries", async () => {
+    const app = await testApp(createDemoModelClient());
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: { conversationId: "missing", message: "Hello" },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({ error: "conversation_not_found" });
+
+    const completed = await app.inject({
+      method: "POST",
+      url: "/api/chat",
+      payload: { message: "Hello" },
+    });
+    const accepted = events(completed.body).at(0);
+    if (accepted?.type !== "turn.accepted") throw new Error("Missing accepted event");
+    const retry = await app.inject({
+      method: "POST",
+      url: "/api/chat/retry",
+      payload: { conversationId: accepted.conversationId },
+    });
+    expect(retry.statusCode).toBe(409);
+    expect(retry.json()).toEqual({ error: "no_pending_message" });
+  });
 });

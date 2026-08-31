@@ -131,6 +131,16 @@ describe("ChatApplication", () => {
           calls: [{ kind: "claim_early_risers", id: "promo-2" }],
         },
         { content: null, calls: [] },
+        {
+          content: null,
+          calls: [{ kind: "claim_early_risers", id: "promo-3" }],
+        },
+        { content: null, calls: [] },
+        {
+          content: null,
+          calls: [{ kind: "claim_early_risers", id: "promo-4" }],
+        },
+        { content: null, calls: [] },
       ],
       finalDeltas: ["Promotion response."],
     });
@@ -140,6 +150,8 @@ describe("ChatApplication", () => {
       now: () => new Date("2026-08-31T16:00:00.000Z"),
     });
     const informational = store.createConversation();
+    const negatedClaim = store.createConversation();
+    const negatedSend = store.createConversation();
     const explicit = store.createConversation();
 
     const first = await requireAccepted(
@@ -159,13 +171,39 @@ describe("ChatApplication", () => {
       app.openTurn(
         {
           kind: "new",
+          conversationId: negatedClaim.id,
+          content: "Do not claim the Early Risers promotion.",
+        },
+        new AbortController().signal,
+      ),
+    );
+    await drain(second.output);
+    expect(store.promotionClaims).toHaveLength(0);
+
+    const third = await requireAccepted(
+      app.openTurn(
+        {
+          kind: "new",
+          conversationId: negatedSend.id,
+          content: "Never send me the Early Risers discount.",
+        },
+        new AbortController().signal,
+      ),
+    );
+    await drain(third.output);
+    expect(store.promotionClaims).toHaveLength(0);
+
+    const fourth = await requireAccepted(
+      app.openTurn(
+        {
+          kind: "new",
           conversationId: explicit.id,
           content: "Please give me the Early Risers promotion.",
         },
         new AbortController().signal,
       ),
     );
-    await drain(second.output);
+    await drain(fourth.output);
     expect(store.promotionClaims).toEqual([
       {
         conversationId: explicit.id,
@@ -232,10 +270,10 @@ describe("ChatApplication", () => {
     );
   });
 
-  it("caps planning at two rounds and makes one final streaming call", async () => {
+  it("caps planning at three rounds and makes one final streaming call", async () => {
     const store = new FakeStore();
     const conversation = store.createConversation();
-    store.productBatches = [makeProducts(["A"]), makeProducts(["B"])];
+    store.productBatches = [makeProducts(["A"]), makeProducts(["B"]), makeProducts(["C"])];
     let planningCalls = 0;
     let finalCalls = 0;
     const model: ModelClient = {
@@ -267,7 +305,7 @@ describe("ChatApplication", () => {
     );
     await drain(accepted.output);
 
-    expect(planningCalls).toBe(2);
+    expect(planningCalls).toBe(3);
     expect(finalCalls).toBe(1);
   });
 });

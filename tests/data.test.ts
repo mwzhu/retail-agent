@@ -46,7 +46,10 @@ describe("Sierra data store", () => {
       name: "Bhavish's Backcountry Blaze Backpack",
       inventory: 120,
     });
-    expect(products.products[0]?.description.length).toBeLessThanOrEqual(180);
+    expect(products.products[0]?.description.length).toBeLessThanOrEqual(240);
+
+    const hairbrush = store.searchProducts({ query: "SOBT003", limit: 5 });
+    expect(hairbrush.products[0]?.description).toContain("shine to your locks");
 
     const order = store.lookupOrder({
       email: "john.doe@example.com",
@@ -65,6 +68,10 @@ describe("Sierra data store", () => {
 
     expect(result.products.map((product) => product.sku)).toContain("SOTN002");
     expect(() => store.searchProducts({ query: `" OR *`, limit: 5 })).not.toThrow();
+    expect(store.searchProducts({
+      query: `I pasted this into search: " OR * ) ( NEAR/1? Do you carry anything matching it?`,
+      limit: 5,
+    }).products).toEqual([]);
   });
 
   it("caps caller-requested product results at five", () => {
@@ -167,6 +174,25 @@ describe("Sierra data store", () => {
     expect(repeat).toMatchObject({ kind: "granted", alreadyGranted: true });
     if (first.kind === "granted" && repeat.kind === "granted") {
       expect(repeat.code).toBe(first.code);
+    }
+  });
+
+  it("recovers an existing promotion grant after the claim window closes", () => {
+    const store = openStore();
+    const conversation = store.createConversation();
+    const first = store.claimPromotion({
+      conversationId: conversation.id,
+      now: new Date("2026-08-31T16:59:59.000Z"),
+    });
+    const recovered = store.claimPromotion({
+      conversationId: conversation.id,
+      now: new Date("2026-08-31T17:00:00.000Z"),
+    });
+
+    expect(first).toMatchObject({ kind: "granted", alreadyGranted: false });
+    expect(recovered).toMatchObject({ kind: "granted", alreadyGranted: true });
+    if (first.kind === "granted" && recovered.kind === "granted") {
+      expect(recovered.code).toBe(first.code);
     }
   });
 
