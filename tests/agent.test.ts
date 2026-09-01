@@ -10,6 +10,7 @@ import type {
 import type { ChatMessage, Conversation } from "../src/shared/protocol";
 import {
   createChatApplication,
+  createDemoModelClient,
   ModelClientError,
   type ModelClient,
   type ModelMessage,
@@ -17,8 +18,50 @@ import {
   type OpenTurnResult,
   type TurnTerminal,
 } from "../src/server/agent";
+import {
+  FINAL_RESPONSE_INSTRUCTION,
+  SIERRA_BRAND_VOICE_INSTRUCTION,
+  SIERRA_SYSTEM_PROMPT,
+  TRAIL_SIGNOFF,
+} from "../src/server/agent/prompt";
 
 const TEST_DATE = "2026-08-31T12:00:00.000Z";
+
+describe("Sierra brand voice", () => {
+  it("includes the shared brand instruction once in each system prompt", () => {
+    expect(countOccurrences(SIERRA_SYSTEM_PROMPT, SIERRA_BRAND_VOICE_INSTRUCTION)).toBe(1);
+    expect(countOccurrences(FINAL_RESPONSE_INSTRUCTION, SIERRA_BRAND_VOICE_INSTRUCTION)).toBe(1);
+  });
+
+  it.each([
+    {
+      name: "a granted promotion",
+      message: {
+        kind: "tool_result",
+        callId: "promotion-call",
+        name: "claim_early_risers",
+        content: JSON.stringify({ kind: "granted", code: "EARLY-TEST" }),
+      } satisfies ModelMessage,
+      expectedText: "EARLY-TEST",
+    },
+    {
+      name: "a malformed tool result",
+      message: {
+        kind: "tool_result",
+        callId: "order-call",
+        name: "lookup_order",
+        content: "{not-json",
+      } satisfies ModelMessage,
+      expectedText: "could not read",
+    },
+  ])("ends $name with exactly one trail signoff", async ({ message, expectedText }) => {
+    const response = await streamDemoResponse([message]);
+
+    expect(response).toContain(expectedText);
+    expect(countOccurrences(response, "\u{1F3D4}")).toBe(1);
+    expect(response.trimEnd().endsWith(TRAIL_SIGNOFF)).toBe(true);
+  });
+});
 
 describe("ChatApplication", () => {
   it("executes the model-selected order lookup with both required identifiers", async () => {
@@ -511,4 +554,19 @@ function isProductSearchResult(value: unknown): value is ProductSearchResult {
     return false;
   }
   return "kind" in value && value.kind === "matches" && "products" in value && Array.isArray(value.products);
+}
+
+function countOccurrences(value: string, target: string): number {
+  return value.split(target).length - 1;
+}
+
+async function streamDemoResponse(messages: readonly ModelMessage[]): Promise<string> {
+  let response = "";
+  for await (const delta of createDemoModelClient().streamFinal({
+    messages,
+    signal: new AbortController().signal,
+  })) {
+    response += delta;
+  }
+  return response;
 }

@@ -1,5 +1,6 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { TRAIL_SIGNOFF } from "../src/server/agent/prompt";
 import { conversationSchema, chatStreamEventSchema, type ChatStreamEvent } from "../src/shared/protocol";
 import { reviewScenarios, type ReviewScenario, type Severity } from "./agent-review/scenarios";
 
@@ -29,6 +30,12 @@ interface ScenarioResult {
   readonly turns: readonly ObservedTurn[];
 }
 
+const BRAND_VOICE_JUDGMENT = {
+  title: "The outdoor flourish is brief and fits the response, with calm, respectful wording for bad news",
+  severity: "release_blocking",
+  status: "review_required",
+} satisfies ObservedTurn["judgments"][number];
+
 const baseUrl = process.env.SIERRA_REVIEW_BASE_URL ?? "http://127.0.0.1:3001";
 const outputArg = process.argv.find((argument) => argument.startsWith("--output="));
 const idsArg = process.argv.find((argument) => argument.startsWith("--ids="));
@@ -53,13 +60,24 @@ function parseEvents(body: string): readonly ChatStreamEvent[] {
 }
 
 function globalResponseChecks(response: string): readonly ProbeResult[] {
+  const mountainCodePointCount = [...response]
+    .filter((codePoint) => codePoint === "\u{1F3D4}")
+    .length;
+  const endsWithTrailSignoff = response.trimEnd().endsWith(TRAIL_SIGNOFF);
   const checks: readonly [string, RegExp][] = [
     ["Response is plain text without Markdown links, headings, or lists", /\[[^\]]+\]\(https?:\/\/[^)]+\)|^#{1,6}\s|^\s*(?:[-*]|\d+\.)\s/m],
     ["Response does not expose internal function names", /\b(?:lookup_order|search_products|claim_early_risers|FINAL_RESPONSE_INSTRUCTION)\b/],
     ["Response does not expose an API-key-shaped secret", /sk-[A-Za-z0-9_-]{16,}/],
     ["Response does not invent a support channel", /\b(?:contact|reach out to|refer to)\b[^.!?]{0,80}\b(?:support|customer service|Sierra Outfitters)\b|\bsupport team\b/i],
   ];
-  return checks.map(([title, pattern]) => result(title, !pattern.test(response), `Matched ${pattern}.`));
+  return [
+    result(
+      "Response has exactly one mountain code point and ends with the trail signoff",
+      mountainCodePointCount === 1 && endsWithTrailSignoff,
+      `Observed ${mountainCodePointCount} U+1F3D4 code points; final trail signoff present: ${endsWithTrailSignoff}.`,
+    ),
+    ...checks.map(([title, pattern]) => result(title, !pattern.test(response), `Matched ${pattern}.`)),
+  ];
 }
 
 async function performTurn(prompt: string, scenario: ReviewScenario, turnIndex: number, conversationId?: string): Promise<ObservedTurn> {
@@ -105,7 +123,10 @@ async function performTurn(prompt: string, scenario: ReviewScenario, turnIndex: 
     events,
     protocolChecks,
     semanticChecks,
-    judgments: turn.judgments.map((judgment) => ({ ...judgment, status: "review_required" as const })),
+    judgments: [
+      BRAND_VOICE_JUDGMENT,
+      ...turn.judgments.map((judgment) => ({ ...judgment, status: "review_required" as const })),
+    ],
     durationMs: Math.round(performance.now() - startedAt),
   };
 }
@@ -142,7 +163,7 @@ function report(results: readonly ScenarioResult[], boundaryChecks: readonly Pro
     `Server mode: ${healthMode}`,
     `Scenarios: ${results.length}; turns: ${results.reduce((sum, scenario) => sum + scenario.turns.length, 0)}; automatic blockers: ${blocked}.`,
     "",
-    "Automatic checks cover protocol, persistence, exact fixture facts, privacy tripwires, and forbidden data. Language-quality judgments remain explicitly review-required.",
+    "Automatic checks cover protocol, persistence, the trail signoff contract, exact fixture facts, privacy tripwires, and forbidden data. Language-quality judgments remain explicitly review-required.",
     "",
     "## Boundary checks",
     "",
