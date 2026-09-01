@@ -395,8 +395,8 @@ async function executeSerial(input: Readonly<{
   monotonicNow: () => number;
 }>): Promise<ExecutedCall[]> {
   const results: ExecutedCall[] = [];
-  for (const planned of input.calls) {
-    results.push(await executeOne({ ...input, planned }));
+  for (const [slotIndex, planned] of input.calls.entries()) {
+    results.push(await executeOne({ ...input, planned, slotIndex }));
   }
   return results;
 }
@@ -409,12 +409,14 @@ async function executeConcurrent(input: Readonly<{
   trace: AgentTraceSink;
   monotonicNow: () => number;
 }>): Promise<ExecutedCall[]> {
-  return Promise.all(input.calls.map((planned) => executeOne({ ...input, planned })));
+  return Promise.all(input.calls.map((planned, slotIndex) =>
+    executeOne({ ...input, planned, slotIndex })));
 }
 
 async function executeOne(input: Readonly<{
   planned: PlannedCall;
   batch: number;
+  slotIndex: number;
   sourceMessageId: string;
   executor: CapabilityExecutor;
   trace: AgentTraceSink;
@@ -425,8 +427,9 @@ async function executeOne(input: Readonly<{
     kind: "execution.started",
     sourceMessageId: input.sourceMessageId,
     batch: input.batch,
+    slotIndex: input.slotIndex,
     slot: input.planned.slot,
-    tool: input.planned.call.kind,
+    call: input.planned.call,
     atMs: startedAt,
   });
   const result = await input.executor.execute(input.planned.call);
@@ -434,8 +437,9 @@ async function executeOne(input: Readonly<{
     kind: "execution.completed",
     sourceMessageId: input.sourceMessageId,
     batch: input.batch,
+    slotIndex: input.slotIndex,
     slot: input.planned.slot,
-    tool: input.planned.call.kind,
+    call: input.planned.call,
     durationMs: input.monotonicNow() - startedAt,
     resultKind: result.resultKind,
   });

@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type {
   IntentPlanSlot,
+  ModelToolCall,
   PlanningStrategy,
   ToolName,
   ToolSpecVersion,
@@ -34,16 +35,18 @@ export type AgentTraceEvent =
       kind: "execution.started";
       sourceMessageId: string;
       batch: number;
+      slotIndex: number;
       slot: IntentPlanSlot;
-      tool: ToolName;
+      call: ModelToolCall;
       atMs: number;
     }>
   | Readonly<{
       kind: "execution.completed";
       sourceMessageId: string;
       batch: number;
+      slotIndex: number;
       slot: IntentPlanSlot;
-      tool: ToolName;
+      call: ModelToolCall;
       durationMs: number;
       resultKind: string;
     }>

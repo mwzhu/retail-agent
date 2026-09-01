@@ -115,6 +115,34 @@ describe("planning strategies", () => {
       "execution.started",
       "execution.started",
     ]);
+    const completions = trace
+      .filter((event) => event.kind === "execution.completed")
+      .sort((left, right) => left.batch - right.batch || left.slotIndex - right.slotIndex);
+    expect(completions.map((event) => ({
+      batch: event.batch,
+      slotIndex: event.slotIndex,
+      call: event.call,
+    }))).toEqual([
+      {
+        batch: 0,
+        slotIndex: 0,
+        call: expect.objectContaining({
+          kind: "lookup_order",
+          email: "john.doe@example.com",
+          orderNumber: "#W001",
+        }),
+      },
+      {
+        batch: 0,
+        slotIndex: 1,
+        call: expect.objectContaining({ kind: "search_products", query: "ski gear" }),
+      },
+      {
+        batch: 0,
+        slotIndex: 2,
+        call: expect.objectContaining({ kind: "claim_early_risers" }),
+      },
+    ]);
     expect(finalMessages
       .filter((message) => message.kind === "tool_result")
       .map((message) => message.name)).toEqual([

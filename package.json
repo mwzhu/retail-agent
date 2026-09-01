@@ -9,6 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "tsx src/server/index.ts",
     "review:agent": "tsx scripts/run-agent-review.ts",
+    "compare:agent": "tsx scripts/run-agent-comparison.ts",
     "test": "vitest run",
     "verify": "npm run test && npm run build"
   },

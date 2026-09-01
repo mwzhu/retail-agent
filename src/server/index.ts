@@ -32,6 +32,7 @@ export async function buildServer(input: Readonly<{
   config?: AppConfig;
   clock?: ServerClock;
   trace?: AgentTraceSink;
+  logger?: boolean;
 }> = {}) {
   const config = input.config ?? loadConfig();
   const clock = input.clock ?? systemClock;
@@ -72,7 +73,7 @@ export async function buildServer(input: Readonly<{
     monotonicNow: () => clock.monotonicNow(),
     trace,
   });
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: input.logger ?? true });
   await registerRoutes(app, { chat, mode });
 
   const clientRoot = resolve("dist");
