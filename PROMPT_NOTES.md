@@ -2,7 +2,7 @@
 
 The prompt has four jobs. It defines the Sierra Outfitters voice, forces grounded tool use, protects customer data, and tells the model how to handle tool denials.
 
-The first version emphasized outdoor enthusiasm. That instruction alone can make every sentence sound like marketing copy. The current prompt requires each completed customer response to end with exactly one flourish from a shared predefined list followed by exactly one `🏔️` as the final non-whitespace content. The model varies successful and neutral closings among the approved phrases. Refusals, unavailable information, unsuccessful lookups, and bad news use the approved calm phrase.
+The first version emphasized outdoor enthusiasm. The next version forced one of four closings and the same mountain emoji onto every reply, which became repetitive. The current prompt asks for outdoor language frequently but not mechanically. The model creates context-fitting phrases and reserves varied emojis for upbeat successes. Bad news has no flourish or emoji.
 
 The order rules require both email and order number. The model asks only for missing values and uses the matched result. It does not reveal which identifier failed. A raw `error` status becomes a neutral statement that a reliable shipping status is unavailable.
 

@@ -19,11 +19,9 @@ import {
   type TurnTerminal,
 } from "../src/server/agent";
 import {
-  APPROVED_TRAIL_FLOURISHES,
   FINAL_RESPONSE_INSTRUCTION,
   SIERRA_BRAND_VOICE_INSTRUCTION,
   SIERRA_SYSTEM_PROMPT,
-  TRAIL_SIGNOFF,
 } from "../src/server/agent/prompt";
 
 const TEST_DATE = "2026-08-31T12:00:00.000Z";
@@ -32,6 +30,39 @@ describe("Sierra brand voice", () => {
   it("includes the shared brand instruction once in each system prompt", () => {
     expect(countOccurrences(SIERRA_SYSTEM_PROMPT, SIERRA_BRAND_VOICE_INSTRUCTION)).toBe(1);
     expect(countOccurrences(FINAL_RESPONSE_INSTRUCTION, SIERRA_BRAND_VOICE_INSTRUCTION)).toBe(1);
+  });
+
+  it("varies demo branding instead of adding the same emoji to every reply", async () => {
+    const messages = [
+      {
+        kind: "tool_result",
+        callId: "promotion-call",
+        name: "claim_early_risers",
+        content: JSON.stringify({ kind: "granted", code: "EARLY-TEST" }),
+      },
+      {
+        kind: "tool_result",
+        callId: "order-call",
+        name: "lookup_order",
+        content: JSON.stringify({
+          kind: "found",
+          statusSentence: "Order #W001 has been delivered.",
+          tracking: { kind: "tracked", url: "https://example.com/track" },
+        }),
+      },
+      {
+        kind: "tool_result",
+        callId: "malformed-call",
+        name: "lookup_order",
+        content: "{not-json",
+      },
+    ] satisfies readonly ModelMessage[];
+    const responses = await Promise.all(messages.map((message) => streamDemoResponse([message])));
+    const usedEmojis = responses.flatMap((response) => response.match(/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/gu) ?? []);
+
+    expect(responses.some((response) => !/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/u.test(response))).toBe(true);
+    expect(responses.at(-1)).not.toMatch(/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/u);
+    expect(new Set(usedEmojis).size).toBeGreaterThanOrEqual(2);
   });
 
   it.each([
@@ -55,14 +86,11 @@ describe("Sierra brand voice", () => {
       } satisfies ModelMessage,
       expectedText: "could not read",
     },
-  ])("ends $name with exactly one trail signoff", async ({ message, expectedText }) => {
+  ])("keeps $name concise", async ({ message, expectedText }) => {
     const response = await streamDemoResponse([message]);
 
     expect(response).toContain(expectedText);
-    expect(countOccurrences(response, "\u{1F3D4}")).toBe(1);
-    expect(response.trimEnd().endsWith(TRAIL_SIGNOFF)).toBe(true);
-    expect(APPROVED_TRAIL_FLOURISHES.some((flourish) =>
-      response.trimEnd().endsWith(`${flourish} ${TRAIL_SIGNOFF}`))).toBe(true);
+    expect(response.length).toBeLessThan(240);
   });
 });
 
