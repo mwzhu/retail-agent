@@ -2,7 +2,7 @@
 
 This project is a small customer-service agent for Sierra Outfitters. It streams responses in a web chat, persists completed conversations in SQLite, retrieves a bounded product set through FTS5, and uses direct OpenAI function calls for three customer tasks.
 
-Every completed customer response ends with exactly one brief, context-fitting outdoor flourish followed by exactly one `🏔️` as the final non-whitespace content. Refusals, unavailable information, unsuccessful lookups, and bad news use calm, respectful outdoor language.
+Every completed customer response ends with exactly one flourish from a shared predefined list followed by exactly one `🏔️` as the final non-whitespace content. Refusals, unavailable information, unsuccessful lookups, and bad news use the approved calm phrase.
 
 ## Run the application
 
@@ -53,7 +53,7 @@ With an OpenAI-backed server running on port 3001, run the reusable adversarial 
 npm run review:agent -- --output=.audit/agent-review/my-run
 ```
 
-The command runs 31 isolated scenarios and 33 model turns. It checks NDJSON ordering, exact stream persistence, fixture facts, privacy tripwires, input validation, secret leakage, and the exact final `🏔️` contract. A global human judgment reviews whether each outdoor flourish is brief and fits the response, including calm wording for bad news.
+The command runs 31 isolated scenarios and 33 model turns. It checks NDJSON ordering, exact stream persistence, fixture facts, privacy tripwires, input validation, secret leakage, and the approved final flourish plus `🏔️` contract. A global human judgment reviews whether each outdoor flourish fits the response, including calm wording for bad news.
 
 The command writes `results.json` and a prompt-and-response catalog to the output directory. Language judgments remain marked for review instead of being counted as automatic passes. To rerun a subset, add `--ids=ORD-001,PRD-001`.
 

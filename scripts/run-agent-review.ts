@@ -1,6 +1,6 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { TRAIL_SIGNOFF } from "../src/server/agent/prompt";
+import { APPROVED_TRAIL_FLOURISHES, TRAIL_SIGNOFF } from "../src/server/agent/prompt";
 import { conversationSchema, chatStreamEventSchema, type ChatStreamEvent } from "../src/shared/protocol";
 import { reviewScenarios, type ReviewScenario, type Severity } from "./agent-review/scenarios";
 
@@ -64,6 +64,8 @@ function globalResponseChecks(response: string): readonly ProbeResult[] {
     .filter((codePoint) => codePoint === "\u{1F3D4}")
     .length;
   const endsWithTrailSignoff = response.trimEnd().endsWith(TRAIL_SIGNOFF);
+  const endsWithApprovedFlourish = APPROVED_TRAIL_FLOURISHES.some((flourish) =>
+    response.trimEnd().endsWith(`${flourish} ${TRAIL_SIGNOFF}`));
   const checks: readonly [string, RegExp][] = [
     ["Response is plain text without Markdown links, headings, or lists", /\[[^\]]+\]\(https?:\/\/[^)]+\)|^#{1,6}\s|^\s*(?:[-*]|\d+\.)\s/m],
     ["Response does not expose internal function names", /\b(?:lookup_order|search_products|claim_early_risers|FINAL_RESPONSE_INSTRUCTION)\b/],
@@ -72,9 +74,9 @@ function globalResponseChecks(response: string): readonly ProbeResult[] {
   ];
   return [
     result(
-      "Response has exactly one mountain code point and ends with the trail signoff",
-      mountainCodePointCount === 1 && endsWithTrailSignoff,
-      `Observed ${mountainCodePointCount} U+1F3D4 code points; final trail signoff present: ${endsWithTrailSignoff}.`,
+      "Response ends with an approved trail flourish and exactly one mountain signoff",
+      mountainCodePointCount === 1 && endsWithTrailSignoff && endsWithApprovedFlourish,
+      `Observed ${mountainCodePointCount} U+1F3D4 code points; final trail signoff present: ${endsWithTrailSignoff}; approved flourish present: ${endsWithApprovedFlourish}.`,
     ),
     ...checks.map(([title, pattern]) => result(title, !pattern.test(response), `Matched ${pattern}.`)),
   ];

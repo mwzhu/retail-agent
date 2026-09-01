@@ -19,6 +19,7 @@ import {
   type TurnTerminal,
 } from "../src/server/agent";
 import {
+  APPROVED_TRAIL_FLOURISHES,
   FINAL_RESPONSE_INSTRUCTION,
   SIERRA_BRAND_VOICE_INSTRUCTION,
   SIERRA_SYSTEM_PROMPT,
@@ -60,6 +61,8 @@ describe("Sierra brand voice", () => {
     expect(response).toContain(expectedText);
     expect(countOccurrences(response, "\u{1F3D4}")).toBe(1);
     expect(response.trimEnd().endsWith(TRAIL_SIGNOFF)).toBe(true);
+    expect(APPROVED_TRAIL_FLOURISHES.some((flourish) =>
+      response.trimEnd().endsWith(`${flourish} ${TRAIL_SIGNOFF}`))).toBe(true);
   });
 });
 

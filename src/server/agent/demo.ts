@@ -5,7 +5,7 @@ import {
   type ModelPlanningResult,
   type ModelPlanningRequest,
 } from "./types";
-import { TRAIL_SIGNOFF } from "./prompt";
+import { TRAIL_FLOURISHES, TRAIL_SIGNOFF } from "./prompt";
 
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const ORDER_PATTERN = /#[A-Z]\d+\b/i;
@@ -98,12 +98,12 @@ function createDemoResponse(messages: readonly ModelMessage[]): string {
 
   const userMessage = findLatestUserMessage(messages) ?? "";
   if (/\border|tracking|track\b/i.test(userMessage)) {
-    return "Please share both the email address and order number used for the order. We'll get our bearings.";
+    return `Please share both the email address and order number used for the order. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
   if (/\bearly\s+risers\b/i.test(userMessage)) {
-    return "Please explicitly ask to receive the Early Risers promotion, and I can check the Pacific-time window. The trail is ready when you are.";
+    return `Please explicitly ask to receive the Early Risers promotion, and I can check the Pacific-time window. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
-  return "How can I help with an order, product recommendation, or the Early Risers promotion? Pick a trail, and we'll get moving.";
+  return `How can I help with an order, product recommendation, or the Early Risers promotion? ${TRAIL_FLOURISHES.onwardIntoTheUnknown}`;
 }
 
 function findLatestUserMessage(messages: readonly ModelMessage[]): string | null {
@@ -129,43 +129,43 @@ function findLatestToolResult(
 function formatDemoToolResult(content: string): string {
   const parsed = parseRecord(content);
   if (parsed === null || typeof parsed.kind !== "string") {
-    return "I could not read the verified result. Please retry. We can take the trail again when you're ready.";
+    return `I could not read the verified result. Please retry. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
 
   switch (parsed.kind) {
     case "not_found":
-      return "I could not find an order matching that email and order number. We'll stay on solid ground.";
+      return `I could not find an order matching that email and order number. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
     case "found":
       return formatFoundOrder(parsed);
     case "matches":
       return formatProductMatches(parsed);
     case "not_explicit":
-      return "Please explicitly ask to receive the Early Risers promotion before I claim it. We'll pause at the trailhead.";
+      return `Please explicitly ask to receive the Early Risers promotion before I claim it. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
     case "outside_window":
-      return "The Early Risers promotion is available from 8:00 to 10:00 AM Pacific. It is outside that window now. We'll wait at this trail marker.";
+      return `The Early Risers promotion is available from 8:00 to 10:00 AM Pacific. It is outside that window now. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
     case "granted":
       return typeof parsed.code === "string"
-        ? `Your 10% Early Risers code is ${parsed.code}. Adventure awaits!`
-        : "I could not read the verified promotion code. Please retry. We'll keep to the marked trail.";
+        ? `Your 10% Early Risers code is ${parsed.code}. ${TRAIL_FLOURISHES.adventureAwaits}`
+        : `I could not read the verified promotion code. Please retry. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
     default:
-      return "I could not read the verified result. Please retry. We'll take the careful route.";
+      return `I could not read the verified result. Please retry. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
 }
 
 function formatFoundOrder(order: Record<string, unknown>): string {
   if (typeof order.statusSentence !== "string") {
-    return "I could not read the verified order status. Please retry. We'll wait for a clear trail marker.";
+    return `I could not read the verified order status. Please retry. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
   const tracking = order.tracking;
   if (isRecord(tracking) && tracking.kind === "tracked" && typeof tracking.url === "string") {
-    return `${order.statusSentence} Track it here: ${tracking.url} Onward into the unknown!`;
+    return `${order.statusSentence} Track it here: ${tracking.url} ${TRAIL_FLOURISHES.onwardIntoTheUnknown}`;
   }
-  return `${order.statusSentence} No tracking link is available. We'll follow the route we know.`;
+  return `${order.statusSentence} No tracking link is available. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
 }
 
 function formatProductMatches(result: Record<string, unknown>): string {
   if (!Array.isArray(result.products) || result.products.length === 0) {
-    return "I did not find a matching catalog product. Try a different description. Another trail may fit better.";
+    return `I did not find a matching catalog product. Try a different description. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
   }
 
   const names = result.products.flatMap((product) => {
@@ -175,8 +175,8 @@ function formatProductMatches(result: Record<string, unknown>): string {
     return [product.name];
   });
   return names.length > 0
-    ? `Catalog matches: ${names.join(", ")}. Happy trails!`
-    : "I could not read the verified catalog matches. Please retry. We'll wait for a clearer path.";
+    ? `Catalog matches: ${names.join(", ")}. ${TRAIL_FLOURISHES.happyTrails}`
+    : `I could not read the verified catalog matches. Please retry. ${TRAIL_FLOURISHES.takeCareOnTheTrail}`;
 }
 
 function parseRecord(content: string): Record<string, unknown> | null {
