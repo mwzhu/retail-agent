@@ -241,9 +241,13 @@ describe("ChatApplication", () => {
     const store = new FakeStore();
     const conversation = store.createConversation();
     const model: ModelClient = {
-      plan: async () => {
+      selectTools: async () => {
         throw new ModelClientError("MODEL_UNAVAILABLE", "provider detail");
       },
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: emptyIntentPlan(),
+      }),
       streamFinal: async function* () {
         yield "unreachable";
       },
@@ -277,7 +281,7 @@ describe("ChatApplication", () => {
     let planningCalls = 0;
     let finalCalls = 0;
     const model: ModelClient = {
-      plan: async () => {
+      selectTools: async () => {
         planningCalls += 1;
         return {
           content: null,
@@ -290,6 +294,10 @@ describe("ChatApplication", () => {
           ],
         };
       },
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: emptyIntentPlan(),
+      }),
       streamFinal: async function* () {
         finalCalls += 1;
         yield "Done.";
@@ -458,18 +466,30 @@ function createScriptedModel(input: Readonly<{
 }>): ModelClient {
   let planIndex = 0;
   return {
-    plan: async (request) => {
+    selectTools: async (request) => {
       input.onPlan?.(request.messages);
       const plan = input.plans.at(planIndex) ?? { content: null, calls: [] };
       planIndex += 1;
       return plan;
     },
+    planIntents: async () => ({
+      kind: "accepted",
+      plan: emptyIntentPlan(),
+    }),
     streamFinal: async function* (request) {
       input.onFinal?.(request.messages);
       for (const delta of input.finalDeltas) {
         yield delta;
       }
     },
+  };
+}
+
+function emptyIntentPlan() {
+  return {
+    order: { state: "none" as const },
+    product: { state: "none" as const },
+    promotion: { state: "none" as const },
   };
 }
 

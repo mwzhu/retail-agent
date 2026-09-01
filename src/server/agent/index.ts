@@ -1,16 +1,34 @@
 export { createChatApplication } from "./application";
 export { createDemoModelClient, createUnavailableModelClient } from "./demo";
 export { createOpenAIModelClient } from "./openai";
+export { selectToolDirective } from "./routing";
+export {
+  createNdjsonTraceSink,
+  noOpTraceSink,
+} from "./trace";
+export { createToolDefinitions, validateIntentPlan } from "./capabilities";
 export { ModelClientError } from "./types";
 export type {
   ChatApplication,
+  IntentPlan,
   ModelClient,
   ModelFinalRequest,
+  ModelIntentPlanningRequest,
+  ModelIntentPlanningResult,
   ModelMessage,
-  ModelPlanningRequest,
   ModelPlanningResult,
+  ModelToolSelectionRequest,
   ModelToolCall,
   OpenTurnResult,
+  PlanningStrategy,
+  ToolDirective,
+  ToolName,
+  ToolSpecVersion,
   TurnCommand,
   TurnTerminal,
 } from "./types";
+export type { AgentTraceEvent, AgentTraceSink } from "./trace";
+export type {
+  CapabilityExecutor,
+  CapabilityExecutorFactory,
+} from "./executor";

@@ -1,4 +1,18 @@
 import type { ChatMessage, Conversation, TurnErrorCode } from "../../shared/protocol";
+import type {
+  IntentPlanValidation,
+  ModelToolCall,
+  ToolName,
+} from "./capabilities";
+
+export type {
+  IntentPlan,
+  IntentPlanSlot,
+  ModelToolCall,
+  PlanningStrategy,
+  ToolName,
+  ToolSpecVersion,
+} from "./capabilities";
 
 export type TurnCommand =
   | Readonly<{ kind: "new"; conversationId: string; content: string }>
@@ -36,16 +50,6 @@ export interface ChatApplication {
   openTurn(command: TurnCommand, signal: AbortSignal): Promise<OpenTurnResult>;
 }
 
-export type ModelToolCall =
-  | Readonly<{
-      kind: "lookup_order";
-      id: string;
-      email: string;
-      orderNumber: string;
-    }>
-  | Readonly<{ kind: "search_products"; id: string; query: string }>
-  | Readonly<{ kind: "claim_early_risers"; id: string }>;
-
 export type ModelMessage =
   | Readonly<{
       kind: "text";
@@ -64,9 +68,15 @@ export type ModelMessage =
       content: string;
     }>;
 
-export interface ModelPlanningRequest {
+export type ToolDirective =
+  | Readonly<{ kind: "auto" }>
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "required"; name: ToolName }>;
+
+export interface ModelToolSelectionRequest {
   readonly messages: readonly ModelMessage[];
   readonly signal: AbortSignal;
+  readonly directive: ToolDirective;
 }
 
 export interface ModelPlanningResult {
@@ -74,13 +84,23 @@ export interface ModelPlanningResult {
   readonly calls: readonly ModelToolCall[];
 }
 
+export interface ModelIntentPlanningRequest {
+  readonly messages: readonly ModelMessage[];
+  readonly signal: AbortSignal;
+}
+
+export type ModelIntentPlanningResult =
+  | IntentPlanValidation
+  | Readonly<{ kind: "rejected"; reason: "provider_refusal" }>;
+
 export interface ModelFinalRequest {
   readonly messages: readonly ModelMessage[];
   readonly signal: AbortSignal;
 }
 
 export interface ModelClient {
-  plan(request: ModelPlanningRequest): Promise<ModelPlanningResult>;
+  selectTools(request: ModelToolSelectionRequest): Promise<ModelPlanningResult>;
+  planIntents(request: ModelIntentPlanningRequest): Promise<ModelIntentPlanningResult>;
   streamFinal(request: ModelFinalRequest): AsyncIterable<string>;
 }
 

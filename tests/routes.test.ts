@@ -75,13 +75,21 @@ describe("chat routes", () => {
   it("keeps a failed user message and completes it through retry", async () => {
     let planningAttempt = 0;
     const model: ModelClient = {
-      plan: async () => {
+      selectTools: async () => {
         planningAttempt += 1;
         if (planningAttempt === 1) {
           throw new ModelClientError("MODEL_UNAVAILABLE", "temporary provider failure");
         }
         return { content: null, calls: [] };
       },
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: {
+          order: { state: "none" },
+          product: { state: "none" },
+          promotion: { state: "none" },
+        },
+      }),
       streamFinal: async function* () {
         yield "Recovered on retry. 🏔️";
       },

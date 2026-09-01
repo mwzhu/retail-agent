@@ -1,9 +1,10 @@
 import {
   ModelClientError,
   type ModelClient,
+  type ModelIntentPlanningResult,
   type ModelMessage,
   type ModelPlanningResult,
-  type ModelPlanningRequest,
+  type ModelToolSelectionRequest,
 } from "./types";
 
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
@@ -11,7 +12,8 @@ const ORDER_PATTERN = /#[A-Z]\d+\b/i;
 
 export function createDemoModelClient(): ModelClient {
   return {
-    plan: async (request) => createDemoPlan(request),
+    selectTools: async (request) => createDemoPlan(request),
+    planIntents: async (request) => createDemoIntentPlan(request.messages),
     streamFinal: async function* (request) {
       const response = createDemoResponse(request.messages);
       const splitAt = Math.max(1, Math.floor(response.length / 2));
@@ -26,7 +28,10 @@ export function createUnavailableModelClient(): ModelClient {
     new ModelClientError("MODEL_UNAVAILABLE", "No model API key is configured.");
 
   return {
-    plan: async () => {
+    selectTools: async () => {
+      throw unavailable();
+    },
+    planIntents: async () => {
       throw unavailable();
     },
     streamFinal: async function* () {
@@ -35,7 +40,7 @@ export function createUnavailableModelClient(): ModelClient {
   };
 }
 
-function createDemoPlan(request: ModelPlanningRequest): ModelPlanningResult {
+function createDemoPlan(request: ModelToolSelectionRequest): ModelPlanningResult {
   if (request.messages.some((message) => message.kind === "tool_result")) {
     return { content: null, calls: [] };
   }
@@ -87,6 +92,37 @@ function createDemoPlan(request: ModelPlanningRequest): ModelPlanningResult {
   }
 
   return { content: null, calls: [] };
+}
+
+function createDemoIntentPlan(
+  messages: readonly ModelMessage[],
+): ModelIntentPlanningResult {
+  const userMessage = findLatestUserMessage(messages) ?? "";
+  const userContext = messages
+    .filter(
+      (message): message is Extract<ModelMessage, { kind: "text" }> =>
+        message.kind === "text" && message.role === "user",
+    )
+    .map((message) => message.content)
+    .join("\n");
+  const email = userContext.match(EMAIL_PATTERN)?.at(0);
+  const orderNumber = userContext.match(ORDER_PATTERN)?.at(0);
+  const hasOrder = email !== undefined && orderNumber !== undefined;
+  const product = /\b(?:recommend|product|catalog|gear|backpack|ski|outdoor|looking for)\b/i.test(userMessage);
+  const promotion = /\bearly\s+risers\b/i.test(userMessage);
+
+  return {
+    kind: "accepted",
+    plan: {
+      order: hasOrder
+        ? { state: "lookup", email, orderNumber }
+        : { state: "none" },
+      product: product
+        ? { state: "search", query: userMessage, timing: "independent" }
+        : { state: "none" },
+      promotion: promotion ? { state: "claim" } : { state: "none" },
+    },
+  };
 }
 
 function createDemoResponse(messages: readonly ModelMessage[]): string {

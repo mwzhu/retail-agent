@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
-import { loadConfig } from "./config";
+import { loadConfig, type AppConfig } from "./config";
 import { openSierraStore } from "./data/store";
 import {
   createChatApplication,
@@ -12,9 +12,33 @@ import {
   createUnavailableModelClient,
 } from "./agent/index";
 import { registerRoutes } from "./routes";
+import {
+  createNdjsonTraceSink,
+  noOpTraceSink,
+  type AgentTraceSink,
+} from "./agent/trace";
 
-export async function buildServer() {
-  const config = loadConfig();
+export interface ServerClock {
+  now(): Date;
+  monotonicNow(): number;
+}
+
+const systemClock: ServerClock = {
+  now: () => new Date(),
+  monotonicNow: () => performance.now(),
+};
+
+export async function buildServer(input: Readonly<{
+  config?: AppConfig;
+  clock?: ServerClock;
+  trace?: AgentTraceSink;
+}> = {}) {
+  const config = input.config ?? loadConfig();
+  const clock = input.clock ?? systemClock;
+  const trace = input.trace
+    ?? (config.tracePath === undefined
+      ? noOpTraceSink
+      : createNdjsonTraceSink(config.tracePath));
   mkdirSync(dirname(config.databasePath), { recursive: true });
 
   const store = openSierraStore({
@@ -32,10 +56,22 @@ export async function buildServer() {
   const model = config.demoMode
     ? createDemoModelClient()
     : config.apiKey
-      ? createOpenAIModelClient({ apiKey: config.apiKey, model: config.model })
+      ? createOpenAIModelClient({
+          apiKey: config.apiKey,
+          model: config.model,
+          toolSpecVersion: config.toolSpecVersion,
+        })
       : createUnavailableModelClient();
 
-  const chat = createChatApplication({ store, model });
+  const chat = createChatApplication({
+    store,
+    model,
+    planningStrategy: config.planningStrategy,
+    toolSpecVersion: config.toolSpecVersion,
+    now: () => clock.now(),
+    monotonicNow: () => clock.monotonicNow(),
+    trace,
+  });
   const app = Fastify({ logger: true });
   await registerRoutes(app, { chat, mode });
 
