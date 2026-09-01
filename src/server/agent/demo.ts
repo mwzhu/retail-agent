@@ -133,12 +133,12 @@ function createDemoResponse(messages: readonly ModelMessage[]): string {
 
   const userMessage = findLatestUserMessage(messages) ?? "";
   if (/\border|tracking|track\b/i.test(userMessage)) {
-    return "Please share both the email address and order number used for the order. 🏔️";
+    return "Please share both the email address and order number used for the order. We'll get our bearings.";
   }
   if (/\bearly\s+risers\b/i.test(userMessage)) {
-    return "Please explicitly ask to receive the Early Risers promotion, and I can check the Pacific-time window. 🏔️";
+    return "Please explicitly ask to receive the Early Risers promotion, and I can check the Pacific-time window.";
   }
-  return "How can I help with an order, product recommendation, or the Early Risers promotion? 🏔️";
+  return "How can I help with an order, product recommendation, or the Early Risers promotion? Pick a trail, and we'll get moving. 🥾";
 }
 
 function findLatestUserMessage(messages: readonly ModelMessage[]): string | null {
@@ -164,43 +164,43 @@ function findLatestToolResult(
 function formatDemoToolResult(content: string): string {
   const parsed = parseRecord(content);
   if (parsed === null || typeof parsed.kind !== "string") {
-    return "I could not read the verified result. Please retry. 🏔️";
+    return "I could not read the verified result. Please retry.";
   }
 
   switch (parsed.kind) {
     case "not_found":
-      return "I could not find an order matching that email and order number. 🏔️";
+      return "I could not find an order matching that email and order number.";
     case "found":
       return formatFoundOrder(parsed);
     case "matches":
       return formatProductMatches(parsed);
     case "not_explicit":
-      return "Please explicitly ask to receive the Early Risers promotion before I claim it. 🏔️";
+      return "Please explicitly ask to receive the Early Risers promotion before I claim it.";
     case "outside_window":
-      return "The Early Risers promotion is available from 8:00 to 10:00 AM Pacific. It is outside that window now. 🏔️";
+      return "The Early Risers promotion is available from 8:00 to 10:00 AM Pacific. It is outside that window now.";
     case "granted":
       return typeof parsed.code === "string"
-        ? `Your 10% Early Risers code is ${parsed.code}. 🏔️`
-        : "I could not read the verified promotion code. Please retry. 🏔️";
+        ? `Your 10% Early Risers code is ${parsed.code}. The next adventure is calling. 🌄`
+        : "I could not read the verified promotion code. Please retry.";
     default:
-      return "I could not read the verified result. Please retry. 🏔️";
+      return "I could not read the verified result. Please retry.";
   }
 }
 
 function formatFoundOrder(order: Record<string, unknown>): string {
   if (typeof order.statusSentence !== "string") {
-    return "I could not read the verified order status. Please retry. 🏔️";
+    return "I could not read the verified order status. Please retry.";
   }
   const tracking = order.tracking;
   if (isRecord(tracking) && tracking.kind === "tracked" && typeof tracking.url === "string") {
-    return `${order.statusSentence} Track it here: ${tracking.url} 🏔️`;
+    return `${order.statusSentence} Track it here: ${tracking.url} Onward into the unknown! 🏔️`;
   }
-  return `${order.statusSentence} No tracking link is available. 🏔️`;
+  return `${order.statusSentence} No tracking link is available.`;
 }
 
 function formatProductMatches(result: Record<string, unknown>): string {
   if (!Array.isArray(result.products) || result.products.length === 0) {
-    return "I did not find a matching catalog product. Try a different description. 🏔️";
+    return "I did not find a matching catalog product. Try a different description.";
   }
 
   const names = result.products.flatMap((product) => {
@@ -210,8 +210,8 @@ function formatProductMatches(result: Record<string, unknown>): string {
     return [product.name];
   });
   return names.length > 0
-    ? `Catalog matches: ${names.join(", ")}. 🏔️`
-    : "I could not read the verified catalog matches. Please retry. 🏔️";
+    ? `Catalog matches: ${names.join(", ")}. Find your path and enjoy the journey. ⛺`
+    : "I could not read the verified catalog matches. Please retry.";
 }
 
 function parseRecord(content: string): Record<string, unknown> | null {
