@@ -12,20 +12,14 @@ Install the dependencies.
 npm install
 ```
 
-Run the deterministic demo when you want to test the full browser flow without an API key.
-
-```bash
-npm run demo
-```
-
-Open `http://127.0.0.1:5173`.
-
-To use OpenAI, create `.env` from `.env.example`. Put the provided assessment key in `OPENAI_API_KEY`, then run the development servers.
+Create `.env` from `.env.example`. Put the provided assessment key in `OPENAI_API_KEY`, then run the development servers.
 
 ```bash
 cp .env.example .env
 npm run dev
 ```
+
+Open `http://127.0.0.1:5173`.
 
 The server uses `gpt-4o` by default. Set `OPENAI_MODEL` only when your key has access to another allowed model.
 

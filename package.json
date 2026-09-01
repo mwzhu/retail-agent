@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,green \"tsx watch src/server/index.ts\" \"vite --host 127.0.0.1\"",
-    "demo": "SIERRA_DEMO_MODE=1 npm run dev",
     "build": "tsc --noEmit && vite build",
     "start": "tsx src/server/index.ts",
     "review:agent": "tsx scripts/run-agent-review.ts",

@@ -14,7 +14,6 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().default("data/sierra.db"),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.enum(["gpt-4o", "gpt-4o-mini"]).default("gpt-4o"),
-  SIERRA_DEMO_MODE: z.enum(["0", "1"]).default("0"),
   SIERRA_PLANNING_STRATEGY: planningStrategySchema.default("sequence"),
   SIERRA_TOOL_SPEC: toolSpecVersionSchema.default("current"),
   SIERRA_TRACE_PATH: z.string().min(1).optional(),
@@ -28,7 +27,6 @@ export interface AppConfig {
   readonly productsPath: string;
   readonly model: string;
   readonly apiKey: string | undefined;
-  readonly demoMode: boolean;
   readonly planningStrategy: PlanningStrategy;
   readonly toolSpecVersion: ToolSpecVersion;
   readonly tracePath: string | undefined;
@@ -44,7 +42,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     productsPath: resolve("ProductCatalog.json"),
     model: parsed.OPENAI_MODEL,
     apiKey: parsed.OPENAI_API_KEY,
-    demoMode: parsed.SIERRA_DEMO_MODE === "1",
     planningStrategy: parsed.SIERRA_PLANNING_STRATEGY,
     toolSpecVersion: parsed.SIERRA_TOOL_SPEC,
     tracePath: parsed.SIERRA_TRACE_PATH === undefined

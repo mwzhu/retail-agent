@@ -309,7 +309,6 @@ async function runCell(input: Readonly<{
     ...input.baseConfig,
     port: 0,
     databasePath,
-    demoMode: false,
     planningStrategy: input.cell.strategy,
     toolSpecVersion: input.cell.toolSpec,
     tracePath: undefined,

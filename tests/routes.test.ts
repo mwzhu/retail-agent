@@ -2,7 +2,6 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createChatApplication,
-  createDemoModelClient,
   ModelClientError,
   type ModelClient,
 } from "../src/server/agent";
@@ -33,15 +32,32 @@ async function testApp(model: ModelClient) {
   openApps.push(app);
   await registerRoutes(app, {
     chat: createChatApplication({ store, model }),
-    mode: "demo",
+    mode: "openai",
   });
   app.addHook("onClose", async () => store.close());
   return app;
 }
 
+function createSuccessfulModelClient(): ModelClient {
+  return {
+    selectTools: async () => ({ content: null, calls: [] }),
+    planIntents: async () => ({
+      kind: "accepted",
+      plan: {
+        order: { state: "none" },
+        product: { state: "none" },
+        promotion: { state: "none" },
+      },
+    }),
+    streamFinal: async function* () {
+      yield "Test response. 🏔️";
+    },
+  };
+}
+
 describe("chat routes", () => {
   it("streams a complete turn and reloads its persisted transcript", async () => {
-    const app = await testApp(createDemoModelClient());
+    const app = await testApp(createSuccessfulModelClient());
     const response = await app.inject({
       method: "POST",
       url: "/api/chat",
@@ -135,7 +151,7 @@ describe("chat routes", () => {
   });
 
   it("rejects invalid chat payloads before creating a conversation", async () => {
-    const app = await testApp(createDemoModelClient());
+    const app = await testApp(createSuccessfulModelClient());
 
     for (const payload of [
       { message: "   " },
@@ -150,7 +166,7 @@ describe("chat routes", () => {
   });
 
   it("returns bounded errors for missing conversations and invalid retries", async () => {
-    const app = await testApp(createDemoModelClient());
+    const app = await testApp(createSuccessfulModelClient());
     const missing = await app.inject({
       method: "POST",
       url: "/api/chat",

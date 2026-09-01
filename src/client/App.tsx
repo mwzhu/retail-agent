@@ -146,7 +146,6 @@ export default function App() {
 
   const statusLabel = useMemo(() => {
     if (!health.ok) return "Offline";
-    if (health.mode === "demo") return "Demo trail open";
     if (health.mode === "unconfigured") return "API key needed";
     return "Trail guide online";
   }, [health]);

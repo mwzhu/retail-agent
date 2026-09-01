@@ -7,7 +7,6 @@ import { loadConfig, type AppConfig } from "./config";
 import { openSierraStore } from "./data/store";
 import {
   createChatApplication,
-  createDemoModelClient,
   createOpenAIModelClient,
   createUnavailableModelClient,
 } from "./agent/index";
@@ -48,25 +47,23 @@ export async function buildServer(input: Readonly<{
     productsPath: config.productsPath,
   });
 
-  const mode = config.demoMode
-    ? "demo"
-    : config.apiKey
-      ? "openai"
-      : "unconfigured";
-
-  const model = config.demoMode
-    ? createDemoModelClient()
-    : config.apiKey
-      ? createOpenAIModelClient({
+  const runtime = config.apiKey
+    ? {
+        mode: "openai" as const,
+        model: createOpenAIModelClient({
           apiKey: config.apiKey,
           model: config.model,
           toolSpecVersion: config.toolSpecVersion,
-        })
-      : createUnavailableModelClient();
+        }),
+      }
+    : {
+        mode: "unconfigured" as const,
+        model: createUnavailableModelClient(),
+      };
 
   const chat = createChatApplication({
     store,
-    model,
+    model: runtime.model,
     planningStrategy: config.planningStrategy,
     toolSpecVersion: config.toolSpecVersion,
     now: () => clock.now(),
@@ -74,7 +71,7 @@ export async function buildServer(input: Readonly<{
     trace,
   });
   const app = Fastify({ logger: input.logger ?? true });
-  await registerRoutes(app, { chat, mode });
+  await registerRoutes(app, { chat, mode: runtime.mode });
 
   const clientRoot = resolve("dist");
   if (existsSync(clientRoot)) {

@@ -5,11 +5,13 @@ import {
   chatRequestSchema,
   retryRequestSchema,
   type ChatStreamEvent,
+  type HealthMode,
+  type HealthResponse,
 } from "../shared/protocol";
 
 interface RouteDependencies {
   readonly chat: ChatApplication;
-  readonly mode: "demo" | "openai" | "unconfigured";
+  readonly mode: HealthMode;
 }
 
 function line(event: ChatStreamEvent): string {
@@ -68,7 +70,10 @@ export async function registerRoutes(
   app: FastifyInstance,
   dependencies: RouteDependencies,
 ): Promise<void> {
-  app.get("/api/health", async () => ({ ok: true, mode: dependencies.mode }));
+  app.get("/api/health", async (): Promise<HealthResponse> => ({
+    ok: true,
+    mode: dependencies.mode,
+  }));
 
   app.get<{ Params: { id: string } }>("/api/conversations/:id", async (request, reply) => {
     const conversation = dependencies.chat.getConversation(request.params.id);

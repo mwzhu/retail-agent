@@ -1,8 +1,10 @@
 import {
   chatStreamEventSchema,
   conversationSchema,
+  healthResponseSchema,
   type ChatMessage,
   type Conversation,
+  type HealthResponse,
   type TurnErrorCode,
 } from "../shared/protocol";
 
@@ -23,10 +25,9 @@ interface StreamCallbacks {
   readonly onCompleted: (assistantMessage: ChatMessage) => void;
 }
 
-export interface HealthStatus {
-  readonly ok: boolean;
-  readonly mode: "demo" | "openai" | "unconfigured" | "offline";
-}
+export type HealthStatus =
+  | HealthResponse
+  | Readonly<{ ok: false; mode: "offline" }>;
 
 function connectionFailure(conversationId: string | null): StreamResult {
   return {
@@ -164,18 +165,8 @@ export async function fetchHealth(): Promise<HealthStatus> {
   try {
     const response = await fetch("/api/health");
     if (!response.ok) return { ok: false, mode: "offline" };
-    const body: unknown = await response.json();
-    if (
-      typeof body === "object"
-      && body !== null
-      && "ok" in body
-      && "mode" in body
-      && body.ok === true
-      && (body.mode === "demo" || body.mode === "openai" || body.mode === "unconfigured")
-    ) {
-      return { ok: true, mode: body.mode };
-    }
-    return { ok: false, mode: "offline" };
+    const parsed = healthResponseSchema.safeParse(await response.json());
+    return parsed.success ? parsed.data : { ok: false, mode: "offline" };
   } catch {
     return { ok: false, mode: "offline" };
   }

@@ -1,6 +1,6 @@
 export { createChatApplication } from "./application";
-export { createDemoModelClient, createUnavailableModelClient } from "./demo";
 export { createOpenAIModelClient } from "./openai";
+export { createUnavailableModelClient } from "./unavailable";
 export { selectToolDirective } from "./routing";
 export {
   createNdjsonTraceSink,

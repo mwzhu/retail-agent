@@ -17,6 +17,14 @@ export const conversationSchema = z.object({
 
 export type Conversation = z.infer<typeof conversationSchema>;
 
+export const healthResponseSchema = z.object({
+  ok: z.literal(true),
+  mode: z.enum(["openai", "unconfigured"]),
+});
+
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
+export type HealthMode = HealthResponse["mode"];
+
 export const chatRequestSchema = z.object({
   conversationId: z.string().min(1).optional(),
   message: z.string().trim().min(1).max(4_000),
