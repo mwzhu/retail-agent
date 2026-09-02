@@ -2,7 +2,7 @@
 
 This project is a small customer-service agent for Sierra Outfitters. It streams responses in a web chat, persists completed conversations in SQLite, retrieves a bounded product set through FTS5, and uses direct OpenAI function calls for three customer tasks.
 
-The agent uses short outdoor flourishes often, but not on every response. It creates context-fitting wording instead of choosing from a fixed list. Outdoor emojis are optional, varied, and reserved for upbeat successes. Bad news has no flourish or emoji.
+The agent aims to end nearly every eligible reply with a short outdoor flourish. Successful and neutral replies are eligible unless they only ask for clarification. It creates context-fitting wording instead of choosing from a fixed list, and nearly every eligible reply also gets one varied outdoor emoji. Bad news has no flourish or emoji.
 
 ## Run the application
 
@@ -47,7 +47,7 @@ With an OpenAI-backed server running on port 3001, run the reusable adversarial 
 npm run review:agent -- --output=.audit/agent-review/my-run
 ```
 
-The command runs 31 isolated scenarios and 33 model turns. It checks NDJSON ordering, exact stream persistence, fixture facts, privacy tripwires, input validation, secret leakage, and the one-emoji limit. A global human judgment reviews whether outdoor language is varied, fits the response, and stays calm for bad news.
+The command runs 31 isolated scenarios and 33 model turns. It checks NDJSON ordering, exact stream persistence, fixture facts, privacy tripwires, input validation, secret leakage, and the one-emoji limit. Among replies marked eligible by the scenario, outdoor language must appear in 85% to 100% and outdoor emojis in 80% to 100%. Replies marked ineligible must contain neither. A global human judgment reviews whether that language is varied, fits the response, and stays calm for bad news.
 
 The command writes `results.json` and a prompt-and-response catalog to the output directory. Language judgments remain marked for review instead of being counted as automatic passes. To rerun a subset, add `--ids=ORD-001,PRD-001`.
 

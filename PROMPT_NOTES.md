@@ -2,7 +2,9 @@
 
 The prompt has four jobs. It defines the Sierra Outfitters voice, forces grounded tool use, protects customer data, and tells the model how to handle tool denials.
 
-The first version emphasized outdoor enthusiasm. The next version forced one of four closings and the same mountain emoji onto every reply, which became repetitive. The current prompt asks for outdoor language frequently but not mechanically. The model creates context-fitting phrases and reserves varied emojis for upbeat successes. Bad news has no flourish or emoji.
+The first version emphasized outdoor enthusiasm. The next version forced one of four closings and the same mountain emoji onto every reply, which became repetitive. The previous prompt asked for an outdoor flourish in most successful or neutral replies and reserved varied emojis for especially upbeat successes. Its review accepted outdoor language in 40% to 85% of replies and emojis in 15% to 70%.
+
+The current prompt targets an outdoor flourish in nearly every eligible reply and one varied emoji in nearly every eligible reply, including factual successes. The review now marks eligibility per scenario instead of counting bad-news and clarification replies in the denominator. It accepts outdoor language in 85% to 100% of eligible replies and emojis in 80% to 100%. Bad news still has no flourish or emoji.
 
 The order rules require both email and order number. The model asks only for missing values and uses the matched result. It does not reveal which identifier failed. A raw `error` status becomes a neutral statement that a reliable shipping status is unavailable.
 

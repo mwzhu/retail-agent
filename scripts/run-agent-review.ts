@@ -1,6 +1,11 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { conversationSchema, chatStreamEventSchema, type ChatStreamEvent } from "../src/shared/protocol";
+import {
+  brandCoverageChecks,
+  OUTDOOR_EMOJIS,
+  type BrandVoiceEligibility,
+} from "./agent-review/brand-voice";
 import { reviewScenarios, type ReviewScenario, type Severity } from "./agent-review/scenarios";
 
 interface ProbeResult {
@@ -13,6 +18,7 @@ interface ProbeResult {
 interface ObservedTurn {
   readonly prompt: string;
   readonly response: string;
+  readonly brandVoice: BrandVoiceEligibility;
   readonly conversationId: string;
   readonly events: readonly ChatStreamEvent[];
   readonly protocolChecks: readonly ProbeResult[];
@@ -34,9 +40,6 @@ const BRAND_VOICE_JUDGMENT = {
   severity: "release_blocking",
   status: "review_required",
 } satisfies ObservedTurn["judgments"][number];
-
-const OUTDOOR_EMOJIS = ["🏔️", "🌲", "🥾", "🧭", "⛺", "🌄"] as const;
-const OUTDOOR_LANGUAGE_PATTERN = /\b(?:adventure|camp|compass|explor|hike|hiking|journey|mountain|outdoors?|path|summit|trail|trails|trek)\w*\b/i;
 
 const baseUrl = process.env.SIERRA_REVIEW_BASE_URL ?? "http://127.0.0.1:3001";
 const outputArg = process.argv.find((argument) => argument.startsWith("--output="));
@@ -82,53 +85,6 @@ function globalResponseChecks(response: string): readonly ProbeResult[] {
   ];
 }
 
-function brandCoverageChecks(results: readonly ScenarioResult[]): readonly ProbeResult[] {
-  const responses = results.flatMap((scenario) => scenario.turns.map((turn) => turn.response));
-  const outdoorResponses = responses.filter((response) =>
-    OUTDOOR_LANGUAGE_PATTERN.test(response) || OUTDOOR_EMOJIS.some((emoji) => response.includes(emoji)));
-  const emojiResponses = responses.filter((response) => OUTDOOR_EMOJIS.some((emoji) => response.includes(emoji)));
-  const usedEmojis = new Set(OUTDOOR_EMOJIS.filter((emoji) => responses.some((response) => response.includes(emoji))));
-  const closingCounts = new Map<string, number>();
-  for (const response of responses) {
-    const closing = extractClosing(response);
-    closingCounts.set(closing, (closingCounts.get(closing) ?? 0) + 1);
-  }
-  const mostRepeatedClosing = Math.max(0, ...closingCounts.values());
-  const outdoorCoverage = outdoorResponses.length / responses.length;
-  const emojiCoverage = emojiResponses.length / responses.length;
-
-  return [
-    result(
-      "Outdoor voice appears often without appearing on every reply",
-      outdoorCoverage >= 0.4 && outdoorCoverage <= 0.85,
-      `Observed outdoor language in ${outdoorResponses.length}/${responses.length} responses.`,
-    ),
-    result(
-      "Outdoor emojis appear sometimes rather than on every reply",
-      emojiCoverage >= 0.15 && emojiCoverage <= 0.7,
-      `Observed outdoor emojis in ${emojiResponses.length}/${responses.length} responses.`,
-    ),
-    result(
-      "The review uses at least two different outdoor emojis",
-      usedEmojis.size >= 2,
-      `Observed ${[...usedEmojis].join(", ") || "no outdoor emojis"}.`,
-    ),
-    result(
-      "No single closing dominates the review",
-      mostRepeatedClosing <= Math.ceil(responses.length * 0.25),
-      `The most repeated closing appeared ${mostRepeatedClosing}/${responses.length} times.`,
-    ),
-  ];
-}
-
-function extractClosing(response: string): string {
-  const withoutEmoji = OUTDOOR_EMOJIS.reduce(
-    (value, emoji) => value.replaceAll(emoji, ""),
-    response.trim(),
-  ).trim();
-  return withoutEmoji.split(/(?<=[.!?])\s+/).at(-1)?.toLocaleLowerCase() ?? withoutEmoji.toLocaleLowerCase();
-}
-
 async function performTurn(prompt: string, scenario: ReviewScenario, turnIndex: number, conversationId?: string): Promise<ObservedTurn> {
   const startedAt = performance.now();
   const response = await postJson("/api/chat", { message: prompt, ...(conversationId ? { conversationId } : {}) });
@@ -168,6 +124,7 @@ async function performTurn(prompt: string, scenario: ReviewScenario, turnIndex: 
   return {
     prompt,
     response: deltas,
+    brandVoice: turn.brandVoice,
     conversationId: accepted.conversationId,
     events,
     protocolChecks,
@@ -288,7 +245,9 @@ async function main(): Promise<void> {
     await checkBoundary("/api/chat", { conversationId: "missing-conversation", message: "Hello" }, 404),
     await checkBoundary("/api/chat/retry", { conversationId: results[0]?.turns[0]?.conversationId }, 409),
   ];
-  const brandChecks = selectedIds.size === 0 ? brandCoverageChecks(results) : [];
+  const brandChecks = selectedIds.size === 0
+    ? brandCoverageChecks(results.flatMap((scenario) => scenario.turns))
+    : [];
 
   const tempDirectory = `${outputDirectory}.tmp-${process.pid}`;
   await rm(tempDirectory, { recursive: true, force: true });

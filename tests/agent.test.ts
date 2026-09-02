@@ -33,13 +33,16 @@ describe("Sierra brand voice", () => {
 
   it("defines different tone rules for successful and unsuccessful replies", () => {
     expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
-      "Most successful or neutral replies should include one short, natural outdoor flourish.",
+      "End nearly every eligible successful or neutral reply with one short, natural outdoor flourish.",
     );
     expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
-      "Do not add one to every response.",
+      "Include one outdoor emoji in nearly every eligible reply, including concise factual successes.",
     );
     expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
-      "If any part of the response is a refusal, unavailable information, unsuccessful lookup, or other bad news, omit both the outdoor flourish and emoji.",
+      "Any response with a refusal, unavailable information, an unsuccessful lookup, or other bad news is ineligible and must omit both the outdoor flourish and emoji.",
+    );
+    expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
+      "This final check overrides all other brand-voice instructions.",
     );
   });
 });
