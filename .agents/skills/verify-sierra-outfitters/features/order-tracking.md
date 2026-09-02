@@ -1,6 +1,6 @@
 # Order tracking
 
-Order tracking collects both required identifiers, returns a generic miss for invalid pairs, and shows stored status and tracking data for a match.
+Order tracking collects both required identifiers, returns a generic miss for invalid pairs, and shows stored status, purchased items, and tracking data for a match. A successful lookup also grounds later questions about that order and recommendations for something different.
 
 ## Sub-features
 
@@ -8,11 +8,15 @@ Order tracking collects both required identifiers, returns a generic miss for in
 - `orders-cross-turn` combines identifiers supplied across conversation turns.
 - `orders-match` finds a normalized email and order-number pair.
 - `orders-tracking-link` exposes a USPS link only for a stored tracking number.
+- `orders-contents` returns verified product names from a matched order.
+- `orders-context` retains a successful order lookup for later turns in the same conversation.
+- `orders-recommend-different` searches by the verified order's product tags and excludes purchased SKUs.
 - `orders-generic-miss` does not reveal which identifier failed.
 
 ## How to get to it (user POV)
 
 - Type an order question into **Message Sierra Outfitters**, then choose **Send message**.
+- After a successful lookup, ask what products were in the order or what else to buy based on it.
 - Choose the starter card containing `Help me track an order`, then choose **Send message**.
 
 ## Driving it with Browser
@@ -25,6 +29,8 @@ Preconditions:
 - Choose the starter card matching `/Help me track an order/`, then submit it. Require the reply to ask for both the email address and order number.
 - Send `My order number is #W001.` Require the reply to ask for the missing email. Then send `The email is john.doe@example.com.` Require the completed reply to report the stored `delivered` status and show a link named **Track with USPS**.
 - Require the tracked-order link `href` to equal `https://tools.usps.com/go/TrackConfirmAction?tLabels=TRK123456789`.
+- In that same conversation, send `What products were in that order?`. Require `Bhavish's Backcountry Blaze Backpack` and `Beth's Caffeinated Energy Drink`.
+- Then send `What else should I buy based on that order?`. Require an exact catalog name whose SKU is neither `SOBP001` nor `SOWB004`.
 - Send `Track order #W003 for alice.johnson@example.com.` in a new conversation. Require the reply to report the stored `fulfilled` status and require no link named **Track with USPS**.
 - Send `Track order #W001 for wrong@example.com.` in a new conversation. Require a generic miss. Reject any claim about which identifier failed and any disclosure of the real email, status, or tracking number.
 - Capture each complete request before submission and the visible status plus link state after completion. Run `capture-transcript.mjs` after the selected proof case and match the stored messages to the browser.
@@ -32,6 +38,8 @@ Preconditions:
 ## Gotchas
 
 - The OpenAI path can combine an order number and email from separate turns.
+- Only a successful lookup establishes order context. Later content and recommendation questions reuse it without another lookup.
+- A recommendation for something different excludes the verified order's purchased SKUs. Replacement and unrelated product requests do not.
 - Order numbers include a leading `#`, though the store normalizes whitespace and case.
 - Do not open the USPS link. Its exact `href` proves the rendered target without leaving the application.
 - Some fixture orders reference products missing from the catalog. That does not prevent order status or tracking proof.

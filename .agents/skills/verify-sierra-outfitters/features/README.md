@@ -43,7 +43,8 @@ Each feature file describes behavior from the customer's point of view and conta
 
 ## Features
 
-- [Product recommendations](./product-recommendations.md) covers direct questions, the Gear starter card, catalog matches, and no-match replies.
-- [Order tracking](./order-tracking.md) covers identifier collection, matched orders, missing orders, status text, and USPS links.
-- [Early Risers](./early-risers.md) covers explicit consent, negated requests, the Pacific-time window, and durable grants.
-- [Conversation lifecycle](./conversation-lifecycle.md) covers completed-turn persistence, reload recovery, and starting a new browser conversation.
+- [Product recommendations](./product-recommendations.md) covers direct questions, the Gear starter card, food and drink requests, inventory disclosure, catalog matches, and no-match replies.
+- [Order tracking](./order-tracking.md) covers identifier collection, matched and missing orders, status text, USPS links, purchased items, and order-based recommendations.
+- [Early Risers](./early-risers.md) covers promotion information, explicit consent, negated requests, the Pacific-time window, durable grants, and same-day code recovery.
+- [Conversation lifecycle](./conversation-lifecycle.md) covers completed and pending-turn persistence, reload recovery, retry, and starting a new browser conversation.
+- [Assistant response policy](./response-policy.md) covers Sierra voice, calm clarification and bad-news replies, unsupported retail facts, and unsupported order or payment actions.

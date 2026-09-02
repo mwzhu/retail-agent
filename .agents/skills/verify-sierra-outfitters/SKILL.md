@@ -1,6 +1,6 @@
 ---
 name: verify-sierra-outfitters
-description: Drive the OpenAI-backed Sierra Outfitters React chat and prove product recommendations, order tracking, Early Risers, and conversation persistence. Use after UI, streaming, agent, route, OpenAI, or SQLite changes.
+description: Drive the OpenAI-backed Sierra Outfitters React chat and prove product recommendations, order tracking, Early Risers, conversation persistence, and response policy. Use after UI, streaming, agent, route, OpenAI, or SQLite changes.
 ---
 
 # Verify Sierra Outfitters
@@ -64,6 +64,22 @@ const verificationTab = await browser.tabs.new();
 await verificationTab.goto(`http://127.0.0.1:${verificationPort}/`);
 ```
 
+OpenAI turns may take longer than one Browser selector attempt, and the expected text may appear before streaming finishes. Poll until the fact is visible and the composer is enabled:
+
+```js
+async function waitForCompletedFact(locator, timeoutMs = 60000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const composer = verificationTab.playwright.getByLabel("Message Sierra Outfitters", { exact: true });
+    if (await locator.isVisible() && await composer.isEnabled()) return;
+    await verificationTab.playwright.waitForTimeout(250);
+  }
+  throw new Error(`Expected completed fact did not become visible within ${timeoutMs}ms`);
+}
+```
+
+The visible fact and enabled composer decide success. Elapsed time never does. Create fresh locators after `reload()` or **New conversation** before the next interaction.
+
 Stable controls and states:
 
 - `getByLabel("Message Sierra Outfitters", { exact: true })` selects the composer.
@@ -84,11 +100,12 @@ await verificationFs.writeFile(`${verificationEvidence}/product-lookup-action.do
 await verificationFs.writeFile(`${verificationEvidence}/product-lookup-action.jpg`, await verificationTab.screenshot({ fullPage: true }));
 await verificationTab.playwright.getByRole("button", { name: "Send message", exact: true }).click();
 const verificationResult = verificationTab.playwright.getByText("Crain's Summit Pro X Skis");
-await verificationResult.waitFor({ state: "visible", timeoutMs: 60000 });
+await waitForCompletedFact(verificationResult);
 await verificationFs.writeFile(`${verificationEvidence}/product-lookup-result.dom.txt`, await verificationTab.playwright.domSnapshot());
 await verificationFs.writeFile(`${verificationEvidence}/product-lookup-result.jpg`, await verificationTab.screenshot({ fullPage: true }));
 await verificationTab.reload();
-await verificationResult.waitFor({ state: "visible", timeoutMs: 10000 });
+const verificationReloadedResult = verificationTab.playwright.getByText("Crain's Summit Pro X Skis");
+await waitForCompletedFact(verificationReloadedResult, 10000);
 await verificationFs.writeFile(`${verificationEvidence}/product-lookup-after-reload.dom.txt`, await verificationTab.playwright.domSnapshot());
 await verificationFs.writeFile(`${verificationEvidence}/product-lookup-after-reload.jpg`, await verificationTab.screenshot({ fullPage: true }));
 ```
@@ -127,7 +144,7 @@ find ".audit/verification/evidence/$verification_run_id" -maxdepth 1 -type f -pr
 
 `cleanup.sh` checks the PID, command, working directory, and recorded port before sending a signal. It removes only that run's disposable database and state directory. It never removes `.audit/verification/evidence/<run-id>`.
 
-Run cleanup after every failed attempt. Never kill by process name. Never stop an instance that the current run did not launch.
+After a failed drive on a healthy shared instance, preserve the failure evidence, clear that conversation or replace the wedged tab, and run the doctor before continuing. Clean up the whole run when the instance itself fails or when the final drive ends. Never kill by process name. Never stop an instance that the current run did not launch.
 
 ## Helpers
 
