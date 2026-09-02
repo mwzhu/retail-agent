@@ -1,5 +1,5 @@
 import type { ModelMessage, ToolDirective } from "./types";
-import { hasExplicitPromotionIntent } from "./intents";
+import { foodProductSearchQuery, hasExplicitPromotionIntent } from "./intents";
 
 export function selectToolDirective(messages: readonly ModelMessage[]): ToolDirective {
   const userMessages = messages.filter(
@@ -29,8 +29,10 @@ export function selectToolDirective(messages: readonly ModelMessage[]): ToolDire
     return { kind: "required", name: "lookup_order" };
   }
 
-  const productIntent = /\b(?:recommend|product|catalog|gear|equipment|buy|price|cost|inventory|stock|carry|return|warranty|backpack|skis?|jetpack|cloak|lampshade|crampons)\b|\bSO[A-Z0-9]{5}\b/i;
-  if (productIntent.test(currentRequest) && !completedTools.has("search_products")) {
+  const productIntent = /\b(?:recommend|product|catalog|gear|equipment|buy|price|cost|inventory|stock|carry|return|warranty|backpack|skis?|jetpack|cloak|lampshade|crampons)\b|\bSO[A-Z0-9]{5}\b/i
+    .test(currentRequest)
+    || foodProductSearchQuery(currentRequest) !== null;
+  if (productIntent && !completedTools.has("search_products")) {
     return { kind: "required", name: "search_products" };
   }
 
@@ -41,7 +43,7 @@ export function selectToolDirective(messages: readonly ModelMessage[]): ToolDire
   }
 
   const handledIntent = (orderIntent && completedTools.has("lookup_order"))
-    || (productIntent.test(currentRequest) && completedTools.has("search_products"))
+    || (productIntent && completedTools.has("search_products"))
     || (/\bearly\s+risers\b/i.test(currentRequest)
       && (!promotionIntent || completedTools.has("claim_early_risers")));
   return handledIntent ? { kind: "none" } : { kind: "auto" };

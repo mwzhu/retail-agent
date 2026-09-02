@@ -81,9 +81,9 @@ const capabilityDefinitions = [
     name: "search_products",
     descriptions: {
       current:
-        "Search the Sierra Outfitters catalog for grounded recommendations or product facts, including requests for the whole catalog or raw catalog data. Set excludePurchasedItems only for what-else or something-different recommendations based on a verified order, not replacements or unrelated product requests paired with tracking.",
+        "Search the Sierra Outfitters catalog for grounded recommendations or product facts, including food, drink, snack, appetite, whole-catalog, and raw-catalog requests. Set excludePurchasedItems only for what-else or something-different recommendations based on a verified order, not replacements or unrelated product requests paired with tracking.",
       guided:
-        "Use for every request for product recommendations, what else to buy, catalog facts, inventory, price, gear, equipment, the full catalog, or raw catalog data. Search before answering even when the final response must refuse a bulk dump. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. Keep it false for replacements and for an independent product request that merely appears beside order tracking. Do not answer a product request without this search.",
+        "Use for every request for product recommendations, what else to buy, catalog facts, food, drinks, snacks, hunger, inventory, price, gear, equipment, the full catalog, or raw catalog data. Search before answering even when the final response must refuse a bulk dump. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. Keep it false for replacements and for an independent product request that merely appears beside order tracking. Do not answer a product request without this search.",
     },
     parameters: searchProductsParameters,
   },

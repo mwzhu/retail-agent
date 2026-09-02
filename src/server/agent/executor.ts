@@ -6,11 +6,15 @@ import type {
   SierraStore,
 } from "../contracts";
 import { summarizeProductDescription } from "../product-description";
-import { hasExplicitPromotionIntent } from "./intents";
+import { hasExplicitInventoryIntent, hasExplicitPromotionIntent } from "./intents";
 import type { ModelToolCall } from "./capabilities";
 
 const MAX_PRODUCT_RECORDS = 5;
 const PROMOTION_WINDOW: "8:00-10:00 AM Pacific" = "8:00-10:00 AM Pacific";
+
+type ProductSearchResultWithoutInventory = Omit<ProductSearchResult, "products"> & Readonly<{
+  products: readonly Omit<ProductCard, "inventory">[];
+}>;
 
 export interface CapabilityExecutionContext {
   readonly conversationId: string;
@@ -119,7 +123,10 @@ function executeCapability(input: Readonly<{
         excludeSkus: excludedSkus,
       });
       return {
-        value: value.result,
+        value: productSearchResultForModel(
+          value.result,
+          hasExplicitInventoryIntent(input.context.sourceContent),
+        ),
         outcome: {
           tool: input.call.kind,
           kind: value.result.kind,
@@ -146,6 +153,22 @@ function executeCapability(input: Readonly<{
       return exhaustive;
     }
   }
+}
+
+function productSearchResultForModel(
+  result: ProductSearchResult,
+  includeInventory: boolean,
+): ProductSearchResult | ProductSearchResultWithoutInventory {
+  if (includeInventory) return result;
+  return {
+    ...result,
+    products: result.products.map((product) => ({
+      sku: product.sku,
+      name: product.name,
+      tags: product.tags,
+      description: product.description,
+    })),
+  };
 }
 
 function searchProductsWithinBudget(input: Readonly<{

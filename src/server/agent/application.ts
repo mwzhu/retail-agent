@@ -7,7 +7,7 @@ import {
   type CapabilityExecutorFactory,
 } from "./executor";
 import { FINAL_RESPONSE_INSTRUCTION, SIERRA_SYSTEM_PROMPT } from "./prompt";
-import { hasExplicitPromotionIntent } from "./intents";
+import { foodProductSearchQuery, hasExplicitPromotionIntent } from "./intents";
 import { selectToolDirective } from "./routing";
 import {
   emitTrace,
@@ -315,8 +315,12 @@ async function runStructuredPlan(input: Readonly<{
     messages: input.messages,
     signal: input.signal,
   });
-  const plan = ensureExplicitPromotionClaim(
+  const planWithProduct = ensureFoodProductSearch(
     result.kind === "accepted" ? result.plan : null,
+    foodProductSearchQuery(input.currentRequest),
+  );
+  const plan = ensureExplicitPromotionClaim(
+    planWithProduct,
     hasExplicitPromotionIntent(input.currentRequest, input.priorContents),
   );
   const batches = plan === null ? [] : planToBatches(plan, input.sourceMessageId);
@@ -351,6 +355,29 @@ async function runStructuredPlan(input: Readonly<{
     }));
   }
   appendResults(input.messages, executed);
+}
+
+function ensureFoodProductSearch(
+  plan: IntentPlan | null,
+  query: string | null,
+): IntentPlan | null {
+  if (query === null) return plan;
+  const base: IntentPlan = plan ?? {
+    order: { state: "none" },
+    product: { state: "none" },
+    promotion: { state: "none" },
+  };
+  return {
+    ...base,
+    product: base.product.state === "search"
+      ? { ...base.product, query }
+      : {
+          state: "search",
+          query,
+          timing: "independent",
+          excludePurchasedItems: false,
+        },
+  };
 }
 
 function ensureExplicitPromotionClaim(

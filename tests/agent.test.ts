@@ -154,6 +154,130 @@ describe("ChatApplication", () => {
     expect(returnedProducts).toHaveLength(5);
   });
 
+  it("omits inventory from product results when the customer did not ask for it", async () => {
+    const store = new FakeStore();
+    const conversation = store.createConversation();
+    store.productBatches = [makeProducts(["Trail Backpack"])];
+    let finalMessages: readonly ModelMessage[] = [];
+    const model = createScriptedModel({
+      plans: [{
+        content: null,
+        calls: [{
+          kind: "search_products",
+          id: "search-1",
+          query: "trail backpack",
+          excludePurchasedItems: false,
+        }],
+      }, { content: null, calls: [] }],
+      onFinal: (messages) => {
+        finalMessages = messages;
+      },
+      finalDeltas: ["Try the Trail Backpack."],
+    });
+    const app = createChatApplication({ store, model });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Do you have any food in your inventory?",
+    }, new AbortController().signal))).output);
+
+    const productResult = finalMessages.find(
+      (message) => message.kind === "tool_result" && message.name === "search_products",
+    );
+    expect(productResult).toBeDefined();
+    if (productResult?.kind !== "tool_result") {
+      throw new Error("Expected a product tool result.");
+    }
+    expect(JSON.parse(productResult.content)).toEqual({
+      kind: "matches",
+      query: "trail backpack",
+      products: [{
+        sku: "SKU-Trail Backpack",
+        name: "Trail Backpack",
+        tags: ["gear"],
+        description: "Trail Backpack description",
+      }],
+    });
+  });
+
+  it("keeps inventory in product results when the customer asks for it", async () => {
+    const store = new FakeStore();
+    const conversation = store.createConversation();
+    store.productBatches = [makeProducts(["Trail Backpack"])];
+    let finalMessages: readonly ModelMessage[] = [];
+    const model = createScriptedModel({
+      plans: [{
+        content: null,
+        calls: [{
+          kind: "search_products",
+          id: "search-1",
+          query: "trail backpack",
+          excludePurchasedItems: false,
+        }],
+      }, { content: null, calls: [] }],
+      onFinal: (messages) => {
+        finalMessages = messages;
+      },
+      finalDeltas: ["Catalog inventory is 1."],
+    });
+    const app = createChatApplication({ store, model });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "What is the inventory for the Trail Backpack?",
+    }, new AbortController().signal))).output);
+
+    const productResult = finalMessages.find(
+      (message) => message.kind === "tool_result" && message.name === "search_products",
+    );
+    expect(productResult).toBeDefined();
+    if (productResult?.kind !== "tool_result") {
+      throw new Error("Expected a product tool result.");
+    }
+    expect(JSON.parse(productResult.content)).toEqual({
+      kind: "matches",
+      query: "trail backpack",
+      products: [{
+        sku: "SKU-Trail Backpack",
+        name: "Trail Backpack",
+        inventory: 1,
+        tags: ["gear"],
+        description: "Trail Backpack description",
+      }],
+    });
+  });
+
+  it("searches the catalog for appetite and food recommendation requests the planner misses", async () => {
+    const store = new FakeStore();
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: emptyIntentPlan(),
+      }),
+      streamFinal: async function* () {
+        yield "Try a catalog snack.";
+      },
+    };
+    const app = createChatApplication({ store, model, planningStrategy: "plan" });
+
+    for (const content of ["I'm hungry.", "Give me food recommendations."]) {
+      const conversation = store.createConversation();
+      await drain((await requireAccepted(app.openTurn({
+        kind: "new",
+        conversationId: conversation.id,
+        content,
+      }, new AbortController().signal))).output);
+    }
+
+    expect(store.productSearches).toEqual([
+      { query: "food beverage snack energy protein", limit: 5, excludeSkus: [] },
+      { query: "food beverage snack energy protein", limit: 5, excludeSkus: [] },
+    ]);
+  });
+
   it("does not claim Early Risers unless the current user explicitly asks for it", async () => {
     const store = new FakeStore();
     const model = createScriptedModel({
