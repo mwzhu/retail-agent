@@ -104,14 +104,25 @@ describe("Sierra data store", () => {
     });
 
     const reopened = openStore(databasePath);
-    expect(reopened.getRememberedOrderProductSkus(conversation.id)).toEqual([
+    const verifiedOrder = reopened.getVerifiedOrderContext(conversation.id);
+    expect(verifiedOrder?.order.items.map((item) => item.sku)).toEqual([
       "SOBP001",
       "SOWB004",
+    ]);
+    expect(verifiedOrder?.recommendationTerms).toEqual([
+      "Backpack",
+      "Hiking",
+      "Adventure",
+      "Outdoor Gear",
+      "Adventure-Ready",
+      "Food & Beverage",
+      "Weatherproof",
+      "Versatile",
     ]);
     const products = reopened.searchProducts({
       query: "adventure",
       limit: 5,
-      excludeSkus: reopened.getRememberedOrderProductSkus(conversation.id),
+      excludeSkus: verifiedOrder?.order.items.map((item) => item.sku) ?? [],
     });
     expect(products.products.map((product) => product.sku)).not.toContain("SOBP001");
     expect(products.products.map((product) => product.sku)).not.toContain("SOWB004");

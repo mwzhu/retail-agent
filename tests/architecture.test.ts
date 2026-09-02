@@ -423,7 +423,7 @@ class MemoryStore implements SierraStore {
 
   lookupOrder(): OrderLookupResult { return { kind: "not_found" }; }
   rememberOrderForConversation(): void {}
-  getRememberedOrderProductSkus(): readonly string[] { return []; }
+  getVerifiedOrderContext(): null { return null; }
   searchProducts(input: Readonly<{ query: string }>): ProductSearchResult {
     return { kind: "matches", query: input.query, products: [] };
   }

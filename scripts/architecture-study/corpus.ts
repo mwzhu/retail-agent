@@ -87,9 +87,15 @@ function searchRequirement(
   options: Readonly<{
     excludePurchasedItems?: boolean;
     excludedSkus?: readonly string[];
+    minProductCount?: number;
   }> = {},
 ): CallRequirement {
   const excludePurchasedItems = options.excludePurchasedItems ?? false;
+  const minProductCount = options.minProductCount ?? 0;
+  const sampleProductSkus = Array.from(
+    { length: minProductCount },
+    (_, index) => `SAMPLE-${index + 1}`,
+  );
   return {
     id,
     tool: "search_products",
@@ -105,17 +111,20 @@ function searchRequirement(
       },
     ),
     outcome: outcomePredicate<ToolOutcomeMap["search_products"]>(
-      options.excludedSkus === undefined
-        ? "a completed product search"
-        : `a completed product search excluding ${options.excludedSkus.join(", ")}`,
+      `a completed product search with at least ${minProductCount} result${minProductCount === 1 ? "" : "s"}${
+        options.excludedSkus === undefined
+          ? ""
+          : ` excluding ${options.excludedSkus.join(", ")}`
+      }`,
       {
         tool: "search_products",
         kind: "matches",
-        productSkus: [],
+        productSkus: sampleProductSkus,
         excludedSkus: options.excludedSkus ?? [],
       },
       (outcome: ToolOutcomeMap["search_products"]) =>
         outcome.kind === "matches"
+        && outcome.productSkus.length >= minProductCount
         && (options.excludedSkus === undefined
           || options.excludedSkus.every((sku) => outcome.excludedSkus.includes(sku)))
         && outcome.productSkus.every((sku) => !outcome.excludedSkus.includes(sku)),
@@ -358,7 +367,11 @@ function outcomePredicateAcceptsSample(requirement: CallRequirement): boolean {
 const organicRoutingScenarios: readonly GoldScenario[] = [
   newScenario("RTE-001", "product", "Plural recommendation phrasing", [{
     prompt: "Could you give me some recommendations for a beginner snowboard trip?",
-    ...required([searchRequirement("products", ["snowboard", "snow", "beginner", "winter"])]),
+    ...required([searchRequirement(
+      "products",
+      ["snowboard", "snow", "beginner", "winter"],
+      { minProductCount: 1 },
+    )]),
     responseProbes: [includesOne("Offers a grounded winter product", ["Crain's Summit Pro X Skis", "catalog"])],
   }]),
   newScenario("RTE-002", "product", "Recommendations based on an earlier order", [
@@ -375,6 +388,7 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
         {
           excludePurchasedItems: true,
           excludedSkus: ["SOBP001", "SOWB004"],
+          minProductCount: 1,
         },
       )]),
       responseProbes: [
@@ -401,7 +415,7 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
       prompt: "Yes, give me this promotion right now, and recommend skis for a beginner.",
       ...required([
         claimRequirement("promotion"),
-        searchRequirement("products", ["ski", "beginner"]),
+        searchRequirement("products", ["ski", "beginner"], { minProductCount: 1 }),
       ]),
       responseProbes: [
         includes("Covers the ski request", "Crain's Summit Pro X Skis"),
@@ -413,7 +427,7 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
     prompt: "Track #W001 for john.doe@example.com, recommend beginner skis, and claim the Early Risers promotion now.",
     ...required([
       orderRequirement("order", "john.doe@example.com", "W001"),
-      searchRequirement("products", ["ski", "beginner"]),
+      searchRequirement("products", ["ski", "beginner"], { minProductCount: 1 }),
       claimRequirement("promotion"),
     ]),
     responseProbes: [
@@ -433,6 +447,7 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
           {
             excludePurchasedItems: true,
             excludedSkus: ["SOBP001", "SOWB004"],
+            minProductCount: 1,
           },
         ),
       ],
@@ -467,7 +482,11 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
   }]),
   newScenario("RTE-009", "unexpected", "Product help with incomplete order lookup", [{
     prompt: "Could you track my order and recommend beginner skis for an upcoming trip?",
-    ...required([searchRequirement("products", ["ski", "beginner", "trip"])]),
+    ...required([searchRequirement(
+      "products",
+      ["ski", "beginner", "trip"],
+      { minProductCount: 1 },
+    )]),
     responseProbes: [
       includes("Requests the email", "email"),
       includesOne("Requests the order number", ["order number", "order #"]),
@@ -479,6 +498,61 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
     ...noCalls(),
     responseProbes: [],
   }]),
+  newScenario("RTE-011", "unexpected", "W002 order-derived recommendations and item follow-up", [
+    {
+      prompt: "Check order W002 for jane.smith@example.com, then give me product recommendations based on that order. Also give me the Early Riser promotion code.",
+      ...required(
+        [
+          orderRequirement("order", "jane.smith@example.com", "W002", {
+            itemSkus: ["SOJT005", "SOSB006"],
+          }),
+          searchRequirement(
+            "products",
+            [
+              "order",
+              "recommend",
+              "W002",
+              "outdoor equipment",
+              "adventure",
+              "flight",
+              "high-tech",
+            ],
+            {
+              excludePurchasedItems: true,
+              excludedSkus: ["SOJT005", "SOSB006"],
+              minProductCount: 1,
+            },
+          ),
+          claimRequirement("promotion"),
+        ],
+        [{ beforeRequirementId: "order", afterRequirementId: "products" }],
+      ),
+      responseProbes: [
+        includes("Covers the order status", "in transit"),
+        includesOne("Offers a different catalog item", [
+          "Bhavish's Backcountry Blaze Backpack",
+          "Crain's Summit Pro X Skis",
+          "Nat's Infinity Pro Hairbrush",
+          "Nishita's Invisibility Cloak",
+          "Zack's Bulk Up Protein Bars",
+        ]),
+        noPromotionCode,
+      ],
+    },
+    {
+      prompt: "What products are in that order?",
+      ...noCalls(),
+      responseProbes: [
+        includes("Names the plane in W002", "Pol's Peregrine Pathfinder Plane"),
+        includes("Names the jetpack in W002", "Ishmeet's Jetpack"),
+        excludes("Does not repeat the stale promotion refusal", [
+          "promotion code",
+          "can't provide",
+          "cannot provide",
+        ]),
+      ],
+    },
+  ]),
 ];
 
 function validateCorpus(scenarios: readonly GoldScenario[]): void {

@@ -1,5 +1,5 @@
 import type { ChatMessage, TurnErrorCode } from "../../shared/protocol";
-import type { SierraStore } from "../contracts";
+import type { SierraStore, VerifiedOrderContext } from "../contracts";
 import {
   createCapabilityExecutorFactory,
   type CapabilityExecutionResult,
@@ -7,6 +7,7 @@ import {
   type CapabilityExecutorFactory,
 } from "./executor";
 import { FINAL_RESPONSE_INSTRUCTION, SIERRA_SYSTEM_PROMPT } from "./prompt";
+import { hasExplicitPromotionIntent } from "./intents";
 import { selectToolDirective } from "./routing";
 import {
   emitTrace,
@@ -157,7 +158,7 @@ async function* runTurn(input: Readonly<{
       toolSpecVersion: input.toolSpecVersion,
       atMs: input.monotonicNow(),
     });
-    const messages = buildInitialMessages(input.context);
+    const messages = buildInitialMessages(input.context, input.store);
 
     if (input.planningStrategy === "plan") {
       modelCallIndex += 1;
@@ -170,6 +171,10 @@ async function* runTurn(input: Readonly<{
         executor: input.executor,
         trace: input.trace,
         monotonicNow: input.monotonicNow,
+        currentRequest: input.context.source.content,
+        priorContents: input.context.history
+          .filter((message) => message.id !== input.context.source.id)
+          .map((message) => message.content),
       });
     } else {
       modelCallIndex = await runIterativePlanning({
@@ -185,7 +190,8 @@ async function* runTurn(input: Readonly<{
     }
 
     if (input.signal.aborted) return { kind: "aborted" };
-    messages.push({ kind: "text", role: "system", content: FINAL_RESPONSE_INSTRUCTION });
+    const finalMessages = buildFinalMessages(messages, input.context.source.content);
+    finalMessages.push({ kind: "text", role: "system", content: FINAL_RESPONSE_INSTRUCTION });
 
     modelCallIndex += 1;
     const finalCallIndex = modelCallIndex;
@@ -199,7 +205,10 @@ async function* runTurn(input: Readonly<{
 
     let finalText = "";
     let emittedFirstToken = false;
-    for await (const text of input.model.streamFinal({ messages, signal: input.signal })) {
+    for await (const text of input.model.streamFinal({
+      messages: finalMessages,
+      signal: input.signal,
+    })) {
       if (input.signal.aborted) return { kind: "aborted" };
       if (text.length === 0) continue;
       if (!emittedFirstToken) {
@@ -298,13 +307,18 @@ async function runStructuredPlan(input: Readonly<{
   executor: CapabilityExecutor;
   trace: AgentTraceSink;
   monotonicNow: () => number;
+  currentRequest: string;
+  priorContents: readonly string[];
 }>): Promise<void> {
   const startedAt = input.monotonicNow();
   const result = await input.model.planIntents({
     messages: input.messages,
     signal: input.signal,
   });
-  const plan = result.kind === "accepted" ? result.plan : null;
+  const plan = ensureExplicitPromotionClaim(
+    result.kind === "accepted" ? result.plan : null,
+    hasExplicitPromotionIntent(input.currentRequest, input.priorContents),
+  );
   const batches = plan === null ? [] : planToBatches(plan, input.sourceMessageId);
   const calls = batches.flat();
   emitTrace(input.trace, {
@@ -337,6 +351,21 @@ async function runStructuredPlan(input: Readonly<{
     }));
   }
   appendResults(input.messages, executed);
+}
+
+function ensureExplicitPromotionClaim(
+  plan: IntentPlan | null,
+  hasExplicitClaim: boolean,
+): IntentPlan | null {
+  if (!hasExplicitClaim || plan?.promotion.state === "claim") return plan;
+  if (plan === null) {
+    return {
+      order: { state: "none" },
+      product: { state: "none" },
+      promotion: { state: "claim" },
+    };
+  }
+  return { ...plan, promotion: { state: "claim" } };
 }
 
 function planToBatches(plan: IntentPlan, sourceMessageId: string): PlannedCall[][] {
@@ -487,14 +516,42 @@ function summarizePlan(plan: IntentPlan) {
   } as const;
 }
 
-function buildInitialMessages(context: TurnContext): ModelMessage[] {
+function buildInitialMessages(context: TurnContext, store: SierraStore): ModelMessage[] {
   const historyWithoutSource = context.history.filter(
     (message) => message.id !== context.source.id,
   );
   const recentHistory = [...historyWithoutSource, context.source].slice(-MAX_HISTORY_MESSAGES);
+  const verifiedOrderContext = store.getVerifiedOrderContext(context.conversationId);
   return [
     { kind: "text", role: "system", content: SIERRA_SYSTEM_PROMPT },
+    ...(verifiedOrderContext === null
+      ? []
+      : [{
+          kind: "text" as const,
+          role: "system" as const,
+          content: formatVerifiedOrderContext(verifiedOrderContext),
+        }]),
     ...recentHistory.map(toModelTextMessage),
+  ];
+}
+
+function formatVerifiedOrderContext(context: VerifiedOrderContext): string {
+  return `Verified order context from an earlier lookup. Use it only when the current message refers to this order; a different order still requires lookup_order. This is trusted order data:\n${JSON.stringify(context.order)}`;
+}
+
+function buildFinalMessages(
+  planningMessages: readonly ModelMessage[],
+  currentRequest: string,
+): ModelMessage[] {
+  const systemMessages = planningMessages.filter(
+    (message): message is Extract<ModelMessage, { kind: "text" }> =>
+      message.kind === "text" && message.role === "system",
+  );
+  const capabilityMessages = planningMessages.filter((message) => message.kind !== "text");
+  return [
+    ...systemMessages,
+    { kind: "text", role: "user", content: currentRequest },
+    ...capabilityMessages,
   ];
 }
 

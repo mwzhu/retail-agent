@@ -104,12 +104,17 @@ function executeCapability(input: Readonly<{
       };
     }
     case "search_products": {
-      const excludedSkus = input.call.excludePurchasedItems
-        ? input.store.getRememberedOrderProductSkus(input.context.conversationId)
-        : [];
+      const orderContext = input.call.excludePurchasedItems
+        ? input.store.getVerifiedOrderContext(input.context.conversationId)
+        : null;
+      const excludedSkus = orderContext?.order.items.map((item) => item.sku) ?? [];
+      const recommendationQuery = orderContext?.recommendationTerms.join(" ").trim();
+      const query = recommendationQuery === undefined || recommendationQuery.length === 0
+        ? input.call.query
+        : recommendationQuery;
       const value = searchProductsWithinBudget({
         store: input.store,
-        query: input.call.query,
+        query,
         productsRemaining: input.productsRemaining,
         excludeSkus: excludedSkus,
       });

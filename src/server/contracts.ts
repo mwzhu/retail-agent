@@ -17,6 +17,11 @@ export type OrderLookupResult =
       items: ReadonlyArray<{ sku: string; productName: string | null }>;
     }>;
 
+export type VerifiedOrderContext = Readonly<{
+  order: Extract<OrderLookupResult, { kind: "found" }>;
+  recommendationTerms: readonly string[];
+}>;
+
 export interface ProductCard {
   readonly sku: string;
   readonly name: string;
@@ -74,7 +79,7 @@ export interface SierraStore {
     conversationId: string;
     orderNumber: string;
   }>): void;
-  getRememberedOrderProductSkus(conversationId: string): readonly string[];
+  getVerifiedOrderContext(conversationId: string): VerifiedOrderContext | null;
   searchProducts(input: Readonly<{
     query: string;
     limit: number;

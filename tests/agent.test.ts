@@ -287,11 +287,45 @@ describe("ChatApplication", () => {
     }]);
   });
 
+  it("claims a singular Early Riser code request even when the model omits the slot", async () => {
+    const store = new FakeStore();
+    const conversation = store.createConversation();
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => ({ kind: "accepted", plan: emptyIntentPlan() }),
+      streamFinal: async function* () {
+        yield "Promotion response.";
+      },
+    };
+    const now = new Date("2026-08-31T16:00:00.000Z");
+    const app = createChatApplication({
+      store,
+      model,
+      planningStrategy: "plan",
+      now: () => now,
+    });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Give me the early riser promotion code.",
+    }, new AbortController().signal))).output);
+
+    expect(store.promotionClaims).toEqual([{ conversationId: conversation.id, now }]);
+  });
+
   it("excludes purchased SKUs from an order-dependent product search", async () => {
     const store = new FakeStore();
     store.orderItems = [
       { sku: "SOBP001", productName: "Backpack" },
       { sku: "SOWB004", productName: "Energy Drink" },
+    ];
+    store.orderRecommendationTerms = [
+      "Backpack",
+      "Hiking",
+      "Adventure",
+      "Outdoor Gear",
+      "Food & Beverage",
     ];
     const conversation = store.createConversation();
     const model: ModelClient = {
@@ -306,7 +340,7 @@ describe("ChatApplication", () => {
           },
           product: {
             state: "search",
-            query: "outdoor adventure gear",
+            query: "product recommendations based on order W001",
             timing: "after_order",
             excludePurchasedItems: true,
           },
@@ -326,10 +360,131 @@ describe("ChatApplication", () => {
     }, new AbortController().signal))).output);
 
     expect(store.productSearches).toEqual([{
-      query: "outdoor adventure gear",
+      query: "Backpack Hiking Adventure Outdoor Gear Food & Beverage",
       limit: 5,
       excludeSkus: ["SOBP001", "SOWB004"],
     }]);
+  });
+
+  it("grounds a W002 multi-intent turn in its order profile and promotion alias", async () => {
+    const store = new FakeStore();
+    store.orderItems = [
+      { sku: "SOJT005", productName: "Pol's Peregrine Pathfinder Plane" },
+      { sku: "SOSB006", productName: "Ishmeet's Jetpack" },
+    ];
+    store.orderRecommendationTerms = [
+      "Adventure-Ready",
+      "Explorer",
+      "Rugged Design",
+      "Trailblazing",
+      "Personal Flight",
+      "High-Tech",
+    ];
+    store.productBatches = [makeProducts(["A different product"])];
+    const conversation = store.createConversation();
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: {
+          order: {
+            state: "lookup",
+            email: "jane.smith@example.com",
+            orderNumber: "W002",
+          },
+          product: {
+            state: "search",
+            query: "product recommendations based on order W002",
+            timing: "after_order",
+            excludePurchasedItems: true,
+          },
+          promotion: { state: "none" },
+        },
+      }),
+      streamFinal: async function* () {
+        yield "Done.";
+      },
+    };
+    const now = new Date("2026-08-31T20:00:00.000Z");
+    const app = createChatApplication({
+      store,
+      model,
+      planningStrategy: "plan",
+      now: () => now,
+    });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Check W002 for jane.smith@example.com, recommend products based on that order, and give me the early riser promotion code.",
+    }, new AbortController().signal))).output);
+
+    expect(store.productSearches).toEqual([{
+      query: "Adventure-Ready Explorer Rugged Design Trailblazing Personal Flight High-Tech",
+      limit: 5,
+      excludeSkus: ["SOJT005", "SOSB006"],
+    }]);
+    expect(store.promotionClaims).toEqual([{ conversationId: conversation.id, now }]);
+  });
+
+  it("provides verified order items to a later order-content turn", async () => {
+    const store = new FakeStore();
+    store.orderItems = [
+      { sku: "SOJT005", productName: "Pol's Peregrine Pathfinder Plane" },
+      { sku: "SOSB006", productName: "Ishmeet's Jetpack" },
+    ];
+    const conversation = store.createConversation();
+    const plans = [
+      {
+        order: {
+          state: "lookup" as const,
+          email: "jane.smith@example.com",
+          orderNumber: "W002",
+        },
+        product: { state: "none" as const },
+        promotion: { state: "none" as const },
+      },
+      emptyIntentPlan(),
+    ];
+    let planIndex = 0;
+    const finalMessages: ModelMessage[][] = [];
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => {
+        const plan = plans.at(planIndex);
+        planIndex += 1;
+        return plan === undefined
+          ? { kind: "rejected", reason: "invalid_shape" }
+          : { kind: "accepted", plan };
+      },
+      streamFinal: async function* (request) {
+        finalMessages.push([...request.messages]);
+        yield finalMessages.length === 1 ? "STALE PROMOTION REFUSAL" : "Done.";
+      },
+    };
+    const app = createChatApplication({ store, model, planningStrategy: "plan" });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Check W002 for jane.smith@example.com.",
+    }, new AbortController().signal))).output);
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "What products are in that order?",
+    }, new AbortController().signal))).output);
+
+    const secondTurnSystemText = finalMessages.at(1)
+      ?.filter((message) => message.kind === "text" && message.role === "system")
+      .map((message) => message.content)
+      .join("\n") ?? "";
+    expect(secondTurnSystemText).toContain("Pol's Peregrine Pathfinder Plane");
+    expect(secondTurnSystemText).toContain("Ishmeet's Jetpack");
+    expect(finalMessages.at(1)
+      ?.filter((message) => message.kind === "text")
+      .map((message) => message.content)
+      .join("\n")).not.toContain("STALE PROMOTION REFUSAL");
   });
 
   it("reuses verified order exclusions in a later recommendation turn", async () => {
@@ -513,6 +668,7 @@ class FakeStore implements SierraStore {
   readonly completedContents: string[] = [];
   productBatches: ProductCard[][] = [];
   orderItems: Array<{ sku: string; productName: string | null }> = [];
+  orderRecommendationTerms: string[] = [];
   #conversationSequence = 0;
   #messageSequence = 0;
 
@@ -617,10 +773,23 @@ class FakeStore implements SierraStore {
     this.rememberedOrderConversations.add(input.conversationId);
   }
 
-  getRememberedOrderProductSkus(conversationId: string): readonly string[] {
-    return this.rememberedOrderConversations.has(conversationId)
-      ? this.orderItems.map((item) => item.sku)
-      : [];
+  getVerifiedOrderContext(conversationId: string) {
+    if (!this.rememberedOrderConversations.has(conversationId)) return null;
+    return {
+      order: {
+        kind: "found" as const,
+        orderNumber: "W002",
+        status: "in-transit" as const,
+        statusSentence: "Order #W002 is in transit.",
+        tracking: {
+          kind: "tracked" as const,
+          number: "TRACK-1",
+          url: "https://example.test/TRACK-1",
+        },
+        items: this.orderItems,
+      },
+      recommendationTerms: this.orderRecommendationTerms,
+    };
   }
 
   searchProducts(input: Readonly<{

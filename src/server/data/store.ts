@@ -14,6 +14,7 @@ import type {
   PromotionResult,
   SierraStore,
   TrackingInfo,
+  VerifiedOrderContext,
 } from "../contracts";
 import {
   readOrderFixtures,
@@ -63,7 +64,11 @@ type OrderItemRow = Readonly<{
   product_name: string | null;
 }>;
 
-type OrderContextItemRow = Readonly<{ sku: string }>;
+type OrderContextItemRow = Readonly<{
+  sku: string;
+  product_name: string | null;
+  product_tags: string | null;
+}>;
 
 type PromotionGrantRow = Readonly<{
   code: string;
@@ -340,6 +345,27 @@ function toProductCard(row: ProductRow): ProductCard {
   };
 }
 
+function toFoundOrder(
+  order: OrderRow,
+  items: readonly OrderItemRow[],
+): Extract<OrderLookupResult, { kind: "found" }> {
+  const tracking: TrackingInfo = order.tracking_number === null
+    ? { kind: "untracked" }
+    : {
+        kind: "tracked",
+        number: order.tracking_number,
+        url: `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(order.tracking_number)}`,
+      };
+  return {
+    kind: "found",
+    orderNumber: order.order_number,
+    status: order.status,
+    statusSentence: statusSentences[order.status],
+    tracking,
+    items: items.map((item) => ({ sku: item.sku, productName: item.product_name })),
+  };
+}
+
 function safeFtsQuery(query: string): string | null {
   const tokens = query.match(/[\p{L}\p{N}]+/gu);
   if (tokens === null) {
@@ -592,24 +618,8 @@ class SqliteSierraStore implements SierraStore {
         WHERE oi.order_id = ?
         ORDER BY oi.position ASC
       `)
-      .all(order.id)
-      .map((item) => ({ sku: item.sku, productName: item.product_name }));
-    const tracking: TrackingInfo =
-      order.tracking_number === null
-        ? { kind: "untracked" }
-        : {
-            kind: "tracked",
-            number: order.tracking_number,
-            url: `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(order.tracking_number)}`,
-          };
-    return {
-      kind: "found",
-      orderNumber: order.order_number,
-      status: order.status,
-      statusSentence: statusSentences[order.status],
-      tracking,
-      items,
-    };
+      .all(order.id);
+    return toFoundOrder(order, items);
   }
 
   rememberOrderForConversation(input: Readonly<{
@@ -626,18 +636,33 @@ class SqliteSierraStore implements SierraStore {
       .run(input.conversationId, normalizeOrderNumber(input.orderNumber));
   }
 
-  getRememberedOrderProductSkus(conversationId: string): readonly string[] {
-    return this.#database
-      .prepare<[string], OrderContextItemRow>(`
-        SELECT oi.sku
+  getVerifiedOrderContext(conversationId: string): VerifiedOrderContext | null {
+    const order = this.#database
+      .prepare<[string], OrderRow>(`
+        SELECT o.id, o.order_number, o.status, o.tracking_number
         FROM conversation_order_context context
         JOIN orders o ON o.normalized_order_number = context.normalized_order_number
-        JOIN order_items oi ON oi.order_id = o.id
         WHERE context.conversation_id = ?
+      `)
+      .get(conversationId);
+    if (order === undefined) return null;
+
+    const items = this.#database
+      .prepare<[number], OrderContextItemRow>(`
+        SELECT oi.sku, p.name AS product_name, p.tags AS product_tags
+        FROM order_items oi
+        LEFT JOIN products p ON p.sku = oi.sku
+        WHERE oi.order_id = ?
         ORDER BY oi.position ASC
       `)
-      .all(conversationId)
-      .map((item) => item.sku);
+      .all(order.id);
+    const recommendationTerms = [...new Set(items.flatMap((item) =>
+      item.product_tags === null ? [] : parseTags(item.product_tags)
+    ))];
+    return {
+      order: toFoundOrder(order, items),
+      recommendationTerms,
+    };
   }
 
   searchProducts(input: Readonly<{

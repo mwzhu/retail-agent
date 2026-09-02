@@ -2,10 +2,10 @@ export function hasExplicitPromotionIntent(
   content: string,
   priorContext: readonly string[] = [],
 ): boolean {
-  const namedPromotion = "early\\s+risers(?:\\s+(?:promotion|promo|discount))?";
+  const namedPromotion = "early\\s+riser(?:s)?(?:\\s+(?:promotion|promo|discount))?";
   const contextualPromotion = "(?:this|that|the)\\s+(?:promotion|promo|discount|deal)";
   const priorNamesEarlyRisers = priorContext.some((message) =>
-    /\bearly\s+risers\b/i.test(message));
+    /\bearly\s+riser(?:s)?\b/i.test(message));
   const promotion = priorNamesEarlyRisers
     ? `(?:${namedPromotion}|${contextualPromotion})`
     : namedPromotion;

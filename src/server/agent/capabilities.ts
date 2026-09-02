@@ -71,9 +71,9 @@ const capabilityDefinitions = [
     name: "lookup_order",
     descriptions: {
       current:
-        "Look up one order after the customer has supplied both their email and order number.",
+        "Look up one order's status, tracking, and purchased items after the customer has supplied both their email and order number.",
       guided:
-        "Use for order status or tracking only when both an email address and complete order number are present, including when they appear in different conversation turns. Do not use when either value is missing.",
+        "Use for order status, tracking, or purchased-item contents only when both an email address and complete order number are present, including when they appear in different conversation turns. Do not use when either value is missing.",
     },
     parameters: lookupOrderParameters,
   },
@@ -91,9 +91,9 @@ const capabilityDefinitions = [
     name: "claim_early_risers",
     descriptions: {
       current:
-        "Claim the Early Risers promotion. Use only when the customer explicitly asks to claim or receive it.",
+        "Claim the Early Risers (also called Early Riser) promotion. Use only when the customer explicitly asks to claim, receive, or get its code.",
       guided:
-        "Use only when the customer's current message explicitly asks to claim, receive, redeem, get, or be given the Early Risers promotion. Do not use for questions about the promotion, negated requests, or unrelated discount requests.",
+        "Use only when the customer's current message explicitly asks to claim, receive, redeem, get, be given, or get a code for the Early Risers/Early Riser promotion. Do not use for questions about the promotion, negated requests, or unrelated discount requests.",
     },
     parameters: claimPromotionParameters,
   },
@@ -115,7 +115,7 @@ export function createIntentPlannerInstruction(version: ToolSpecVersion): string
   const descriptions = capabilityDefinitions
     .map((capability) => `${capability.name}: ${capability.descriptions[version]}`)
     .join("\n");
-  return `Plan the supported capabilities needed for the customer's current message. Return one value for every slot. Use state "none" when a capability is not needed. A current explicit request such as "give me this promotion" may claim Early Risers only when earlier conversation context established that promotion. Do not infer a promotion claim from an information-only or negated request. Schedule product search even for a request for the full catalog or raw catalog data; the final response can still refuse an unsafe bulk dump. Do not repeat an order lookup when an earlier assistant response already reports that verified order; its purchased SKUs remain available to product search. Set product timing to "after_order" only when the current lookup result must drive the product search; use "independent" for a product request merely paired with order tracking. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. Set it to false for replacements and unrelated product requests. Examples: tracking plus beginner skis is independent with exclusions false; a replacement backpack is exclusions false; something different based on the current order is after_order with exclusions true; what else based on an earlier verified order is independent with exclusions true.\n\n${descriptions}`;
+  return `Plan the supported capabilities needed for the customer's current message. Return one value for every slot. Use state "none" when a capability is not needed. Treat "Early Riser" as an alias for "Early Risers." A current explicit request such as "give me this promotion" or "give me the Early Riser code" may claim Early Risers only when the named or contextual promotion is established. Do not infer a promotion claim from an information-only or negated request. Schedule product search even for a request for the full catalog or raw catalog data; the final response can still refuse an unsafe bulk dump. Do not repeat an order lookup when verified order context is provided; its status, tracking, items, and recommendation profile remain available. Set product timing to "after_order" only when the current lookup result must drive the product search; use "independent" for a product request merely paired with order tracking. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. The server will derive the retrieval query from that order's verified product metadata. Set it to false for replacements and unrelated product requests. Examples: tracking plus beginner skis is independent with exclusions false; a replacement backpack is exclusions false; something different based on the current order is after_order with exclusions true; what else based on an earlier verified order is independent with exclusions true.\n\n${descriptions}`;
 }
 
 const modelToolCallBoundarySchema = z.discriminatedUnion("name", [

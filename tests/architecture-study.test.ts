@@ -195,14 +195,14 @@ describe("architecture study corpus", () => {
     const requiredCalls = turns.flatMap((turn) =>
       turn.requiredCalls.flatMap((call) => Array.from({ length: call.count }, () => call)));
 
-    expect(corpus).toHaveLength(41);
-    expect(turns).toHaveLength(45);
-    expect(corpus.filter((scenario) => scenario.id.startsWith("RTE-"))).toHaveLength(10);
-    expect(requiredCalls).toHaveLength(38);
-    expect(turns.filter((turn) => turn.requiredCalls.length === 0)).toHaveLength(13);
+    expect(corpus).toHaveLength(42);
+    expect(turns).toHaveLength(47);
+    expect(corpus.filter((scenario) => scenario.id.startsWith("RTE-"))).toHaveLength(11);
+    expect(requiredCalls).toHaveLength(41);
+    expect(turns.filter((turn) => turn.requiredCalls.length === 0)).toHaveLength(14);
     expect(turns.filter((turn) => new Set(turn.requiredCalls.map((call) => call.tool)).size > 1))
-      .toHaveLength(5);
-    expect(turns.flatMap((turn) => turn.dependencies)).toHaveLength(1);
+      .toHaveLength(6);
+    expect(turns.flatMap((turn) => turn.dependencies)).toHaveLength(2);
     expect(architectureStudyGlobalResponseProbes()).toHaveLength(4);
     expect(turns.every((turn) => architectureStudyGlobalResponseProbes().every((globalProbe) =>
       turn.responseProbes.some((probe) => probe.title === globalProbe.title)))).toBe(true);
