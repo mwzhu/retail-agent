@@ -63,6 +63,8 @@ type OrderItemRow = Readonly<{
   product_name: string | null;
 }>;
 
+type OrderContextItemRow = Readonly<{ sku: string }>;
+
 type PromotionGrantRow = Readonly<{
   code: string;
 }>;
@@ -190,6 +192,14 @@ function createSchema(database: Database.Database): void {
       sku TEXT NOT NULL,
       PRIMARY KEY (order_id, position),
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_order_context (
+      conversation_id TEXT PRIMARY KEY,
+      normalized_order_number TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (normalized_order_number)
+        REFERENCES orders(normalized_order_number) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS promotion_grants (
@@ -602,7 +612,39 @@ class SqliteSierraStore implements SierraStore {
     };
   }
 
-  searchProducts(input: Readonly<{ query: string; limit: number }>): ProductSearchResult {
+  rememberOrderForConversation(input: Readonly<{
+    conversationId: string;
+    orderNumber: string;
+  }>): void {
+    this.#database
+      .prepare<[string, string]>(`
+        INSERT INTO conversation_order_context (conversation_id, normalized_order_number)
+        VALUES (?, ?)
+        ON CONFLICT(conversation_id) DO UPDATE SET
+          normalized_order_number = excluded.normalized_order_number
+      `)
+      .run(input.conversationId, normalizeOrderNumber(input.orderNumber));
+  }
+
+  getRememberedOrderProductSkus(conversationId: string): readonly string[] {
+    return this.#database
+      .prepare<[string], OrderContextItemRow>(`
+        SELECT oi.sku
+        FROM conversation_order_context context
+        JOIN orders o ON o.normalized_order_number = context.normalized_order_number
+        JOIN order_items oi ON oi.order_id = o.id
+        WHERE context.conversation_id = ?
+        ORDER BY oi.position ASC
+      `)
+      .all(conversationId)
+      .map((item) => item.sku);
+  }
+
+  searchProducts(input: Readonly<{
+    query: string;
+    limit: number;
+    excludeSkus: readonly string[];
+  }>): ProductSearchResult {
     const limit = productLimit(input.limit);
     if (limit === 0) {
       return { kind: "matches", query: input.query, products: [] };
@@ -613,7 +655,11 @@ class SqliteSierraStore implements SierraStore {
         SELECT sku, name, inventory, description, tags FROM products WHERE sku = ?
       `)
       .get(normalizeSku(input.query));
+    const excludedSkus = new Set(input.excludeSkus.map(normalizeSku));
     if (exact !== undefined) {
+      if (excludedSkus.has(exact.sku)) {
+        return { kind: "matches", query: input.query, products: [] };
+      }
       return { kind: "matches", query: input.query, products: [toProductCard(exact)] };
     }
 
@@ -622,15 +668,16 @@ class SqliteSierraStore implements SierraStore {
       return { kind: "matches", query: input.query, products: [] };
     }
     const products = this.#database
-      .prepare<[string, number], ProductRow>(`
+      .prepare<[string, string, number], ProductRow>(`
         SELECT p.sku, p.name, p.inventory, p.description, p.tags
         FROM products_fts
         JOIN products p ON p.id = products_fts.rowid
         WHERE products_fts MATCH ?
+          AND p.sku NOT IN (SELECT value FROM json_each(?))
         ORDER BY bm25(products_fts, 0.0, 8.0, 3.0, 0.5) ASC, p.sku ASC
         LIMIT ?
       `)
-      .all(ftsQuery, limit)
+      .all(ftsQuery, JSON.stringify([...excludedSkus]), limit)
       .map(toProductCard);
     return { kind: "matches", query: input.query, products };
   }

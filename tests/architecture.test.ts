@@ -4,6 +4,7 @@ import {
   createToolDefinitions,
   validateIntentPlan,
   type AgentTraceEvent,
+  type CapabilityOutcome,
   type CapabilityExecutor,
   type IntentPlan,
   type ModelClient,
@@ -70,6 +71,7 @@ describe("planning strategies", () => {
               state: "search",
               query: "ski gear",
               timing: "independent",
+              excludePurchasedItems: false,
             },
             promotion: { state: "claim" },
           },
@@ -84,7 +86,10 @@ describe("planning strategies", () => {
       execute: async (call) => {
         calls.push(call);
         await delay(call.kind === "lookup_order" ? 15 : call.kind === "search_products" ? 5 : 10);
-        return { content: JSON.stringify({ kind: `${call.kind}_result` }), resultKind: "ok" };
+        return {
+          content: JSON.stringify({ kind: `${call.kind}_result` }),
+          outcome: fakeOutcome(call),
+        };
       },
     };
     const conversation = store.createConversation();
@@ -160,7 +165,12 @@ describe("planning strategies", () => {
         email: "john.doe@example.com",
         orderNumber: "#W001",
       },
-      product: { state: "search", query: "related gear", timing: "after_order" },
+      product: {
+        state: "search",
+        query: "related gear",
+        timing: "after_order",
+        excludePurchasedItems: true,
+      },
       promotion: { state: "claim" },
     });
     await runSimpleTurn({
@@ -172,7 +182,7 @@ describe("planning strategies", () => {
           sequence.push(`start:${call.kind}`);
           await delay(call.kind === "lookup_order" ? 10 : 1);
           sequence.push(`end:${call.kind}`);
-          return { content: '{"kind":"ok"}', resultKind: "ok" };
+          return { content: '{"kind":"ok"}', outcome: fakeOutcome(call) };
         },
       },
     });
@@ -199,9 +209,9 @@ describe("planning strategies", () => {
       content: "Do everything",
       model,
       executor: {
-        execute: async () => {
+        execute: async (call) => {
           executions += 1;
-          return { content: "{}", resultKind: "unknown" };
+          return { content: "{}", outcome: fakeOutcome(call) };
         },
       },
     });
@@ -238,10 +248,10 @@ describe("tool specifications and config", () => {
     );
   });
 
-  it("defaults to the sequence strategy and current tool spec", () => {
+  it("defaults to the structured planner and guided tool spec", () => {
     const config = loadConfig({});
-    expect(config.planningStrategy).toBe("sequence");
-    expect(config.toolSpecVersion).toBe("current");
+    expect(config.planningStrategy).toBe("plan");
+    expect(config.toolSpecVersion).toBe("guided");
   });
 
   it("preserves the historical auto request shape", () => {
@@ -255,7 +265,12 @@ describe("tool specifications and config", () => {
   it("rejects a dependent product slot without an order slot", () => {
     expect(validateIntentPlan({
       order: { state: "none" },
-      product: { state: "search", query: "related gear", timing: "after_order" },
+      product: {
+        state: "search",
+        query: "related gear",
+        timing: "after_order",
+        excludePurchasedItems: true,
+      },
       promotion: { state: "none" },
     })).toEqual({ kind: "rejected", reason: "invalid_dependency" });
   });
@@ -344,6 +359,26 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function fakeOutcome(call: ModelToolCall): CapabilityOutcome {
+  switch (call.kind) {
+    case "lookup_order":
+      return { tool: call.kind, kind: "found", itemSkus: [] };
+    case "search_products":
+      return {
+        tool: call.kind,
+        kind: "matches",
+        productSkus: [],
+        excludedSkus: [],
+      };
+    case "claim_early_risers":
+      return { tool: call.kind, kind: "outside_window" };
+    default: {
+      const exhaustive: never = call;
+      return exhaustive;
+    }
+  }
+}
+
 class MemoryStore implements SierraStore {
   readonly conversations = new Map<string, Conversation>();
   #message = 0;
@@ -387,6 +422,8 @@ class MemoryStore implements SierraStore {
   }
 
   lookupOrder(): OrderLookupResult { return { kind: "not_found" }; }
+  rememberOrderForConversation(): void {}
+  getRememberedOrderProductSkus(): readonly string[] { return []; }
   searchProducts(input: Readonly<{ query: string }>): ProductSearchResult {
     return { kind: "matches", query: input.query, products: [] };
   }

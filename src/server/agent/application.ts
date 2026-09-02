@@ -97,6 +97,9 @@ export function createChatApplication(input: Readonly<{
           executor: executorFactory({
             conversationId: context.conversationId,
             sourceContent: context.source.content,
+            priorContents: context.history
+              .filter((message) => message.id !== context.source.id)
+              .map((message) => message.content),
           }),
           release: () => busyConversations.delete(command.conversationId),
         });
@@ -355,6 +358,7 @@ function planToBatches(plan: IntentPlan, sourceMessageId: string): PlannedCall[]
           kind: "search_products" as const,
           id: `${sourceMessageId}:product`,
           query: plan.product.query,
+          excludePurchasedItems: plan.product.excludePurchasedItems,
         },
       }
     : null;
@@ -433,6 +437,9 @@ async function executeOne(input: Readonly<{
     atMs: startedAt,
   });
   const result = await input.executor.execute(input.planned.call);
+  if (result.outcome.tool !== input.planned.call.kind) {
+    throw new Error("Capability executor returned an outcome for a different tool.");
+  }
   emitTrace(input.trace, {
     kind: "execution.completed",
     sourceMessageId: input.sourceMessageId,
@@ -441,7 +448,7 @@ async function executeOne(input: Readonly<{
     slot: input.planned.slot,
     call: input.planned.call,
     durationMs: input.monotonicNow() - startedAt,
-    resultKind: result.resultKind,
+    outcome: result.outcome,
   });
   return { ...input.planned, result };
 }

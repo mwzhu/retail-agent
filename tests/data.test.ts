@@ -39,7 +39,7 @@ describe("Sierra data store", () => {
   it("seeds the product and order fixtures", () => {
     const store = openStore();
 
-    const products = store.searchProducts({ query: "SOBP001", limit: 5 });
+    const products = store.searchProducts({ query: "SOBP001", limit: 5, excludeSkus: [] });
     expect(products.products).toHaveLength(1);
     expect(products.products[0]).toMatchObject({
       sku: "SOBP001",
@@ -48,7 +48,7 @@ describe("Sierra data store", () => {
     });
     expect(products.products[0]?.description.length).toBeLessThanOrEqual(240);
 
-    const hairbrush = store.searchProducts({ query: "SOBT003", limit: 5 });
+    const hairbrush = store.searchProducts({ query: "SOBT003", limit: 5, excludeSkus: [] });
     expect(hairbrush.products[0]?.description).toContain("shine to your locks");
 
     const order = store.lookupOrder({
@@ -64,22 +64,57 @@ describe("Sierra data store", () => {
   it("stems safe whole-token searches so skiing finds skis", () => {
     const store = openStore();
 
-    const result = store.searchProducts({ query: "skiing", limit: 5 });
+    const result = store.searchProducts({ query: "skiing", limit: 5, excludeSkus: [] });
 
     expect(result.products.map((product) => product.sku)).toContain("SOTN002");
-    expect(() => store.searchProducts({ query: `" OR *`, limit: 5 })).not.toThrow();
+    expect(() => store.searchProducts({
+      query: `" OR *`,
+      limit: 5,
+      excludeSkus: [],
+    })).not.toThrow();
     expect(store.searchProducts({
       query: `I pasted this into search: " OR * ) ( NEAR/1? Do you carry anything matching it?`,
       limit: 5,
+      excludeSkus: [],
     }).products).toEqual([]);
   });
 
   it("caps caller-requested product results at five", () => {
     const store = openStore();
 
-    const result = store.searchProducts({ query: "adventure", limit: 1_000 });
+    const result = store.searchProducts({ query: "adventure", limit: 1_000, excludeSkus: [] });
 
     expect(result.products).toHaveLength(5);
+  });
+
+  it("persists verified order context and excludes its purchased SKUs", () => {
+    const directory = mkdtempSync(join(tmpdir(), "sierra-order-context-"));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, "sierra.sqlite");
+    const store = openStore(databasePath);
+    const conversation = store.createConversation();
+    const order = store.lookupOrder({
+      email: "john.doe@example.com",
+      orderNumber: "W001",
+    });
+    expect(order.kind).toBe("found");
+    store.rememberOrderForConversation({
+      conversationId: conversation.id,
+      orderNumber: "W001",
+    });
+
+    const reopened = openStore(databasePath);
+    expect(reopened.getRememberedOrderProductSkus(conversation.id)).toEqual([
+      "SOBP001",
+      "SOWB004",
+    ]);
+    const products = reopened.searchProducts({
+      query: "adventure",
+      limit: 5,
+      excludeSkus: reopened.getRememberedOrderProductSkus(conversation.id),
+    });
+    expect(products.products.map((product) => product.sku)).not.toContain("SOBP001");
+    expect(products.products.map((product) => product.sku)).not.toContain("SOWB004");
   });
 
   it("requires the normalized email and order number together", () => {
@@ -277,7 +312,7 @@ describe("Sierra data store", () => {
       email: "john.doe@example.com",
       orderNumber: "#W001",
     });
-    const product = reopened.searchProducts({ query: "SOBP001", limit: 5 });
+    const product = reopened.searchProducts({ query: "SOBP001", limit: 5, excludeSkus: [] });
 
     expect(product.products).toHaveLength(1);
     expect(order.kind).toBe("found");

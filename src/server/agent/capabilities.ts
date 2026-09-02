@@ -21,7 +21,12 @@ export type ModelToolCall =
       email: string;
       orderNumber: string;
     }>
-  | Readonly<{ kind: "search_products"; id: string; query: string }>
+  | Readonly<{
+      kind: "search_products";
+      id: string;
+      query: string;
+      excludePurchasedItems: boolean;
+    }>
   | Readonly<{ kind: "claim_early_risers"; id: string }>;
 
 const lookupOrderParameters = {
@@ -44,8 +49,13 @@ const searchProductsParameters = {
       type: "string",
       description: "A concise catalog search query based on the customer's request.",
     },
+    excludePurchasedItems: {
+      type: "boolean",
+      description:
+        "True only for what-else or something-different recommendations based on a verified order. False for replacements and product requests merely paired with order tracking.",
+    },
   },
-  required: ["query"],
+  required: ["query", "excludePurchasedItems"],
   additionalProperties: false,
 } as const;
 
@@ -71,9 +81,9 @@ const capabilityDefinitions = [
     name: "search_products",
     descriptions: {
       current:
-        "Search the Sierra Outfitters catalog for grounded recommendations or product facts.",
+        "Search the Sierra Outfitters catalog for grounded recommendations or product facts, including requests for the whole catalog or raw catalog data. Set excludePurchasedItems only for what-else or something-different recommendations based on a verified order, not replacements or unrelated product requests paired with tracking.",
       guided:
-        "Use for every request for product recommendations, what else to buy, catalog facts, inventory, price, gear, or equipment. Search before answering even when the customer supplies an alleged product fact. Do not answer a product request without this search.",
+        "Use for every request for product recommendations, what else to buy, catalog facts, inventory, price, gear, equipment, the full catalog, or raw catalog data. Search before answering even when the final response must refuse a bulk dump. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. Keep it false for replacements and for an independent product request that merely appears beside order tracking. Do not answer a product request without this search.",
     },
     parameters: searchProductsParameters,
   },
@@ -105,7 +115,7 @@ export function createIntentPlannerInstruction(version: ToolSpecVersion): string
   const descriptions = capabilityDefinitions
     .map((capability) => `${capability.name}: ${capability.descriptions[version]}`)
     .join("\n");
-  return `Plan the supported capabilities needed for the customer's current message. Return one value for every slot. Use state "none" when a capability is not needed. Do not infer a promotion claim from an information-only or negated request. Product search may be "after_order" only when its query depends on the order lookup result; otherwise use "independent".\n\n${descriptions}`;
+  return `Plan the supported capabilities needed for the customer's current message. Return one value for every slot. Use state "none" when a capability is not needed. A current explicit request such as "give me this promotion" may claim Early Risers only when earlier conversation context established that promotion. Do not infer a promotion claim from an information-only or negated request. Schedule product search even for a request for the full catalog or raw catalog data; the final response can still refuse an unsafe bulk dump. Do not repeat an order lookup when an earlier assistant response already reports that verified order; its purchased SKUs remain available to product search. Set product timing to "after_order" only when the current lookup result must drive the product search; use "independent" for a product request merely paired with order tracking. Set excludePurchasedItems to true only for what-else or something-different recommendations based on a verified order. Set it to false for replacements and unrelated product requests. Examples: tracking plus beginner skis is independent with exclusions false; a replacement backpack is exclusions false; something different based on the current order is after_order with exclusions true; what else based on an earlier verified order is independent with exclusions true.\n\n${descriptions}`;
 }
 
 const modelToolCallBoundarySchema = z.discriminatedUnion("name", [
@@ -119,7 +129,12 @@ const modelToolCallBoundarySchema = z.discriminatedUnion("name", [
   z.object({
     id: z.string().min(1),
     name: z.literal("search_products"),
-    input: z.object({ query: z.string().min(1) }).strict(),
+    input: z
+      .object({
+        query: z.string().min(1),
+        excludePurchasedItems: z.boolean(),
+      })
+      .strict(),
   }),
   z.object({
     id: z.string().min(1),
@@ -153,6 +168,7 @@ export function parseModelToolCall(input: Readonly<{
         kind: parsed.data.name,
         id: parsed.data.id,
         query: parsed.data.input.query,
+        excludePurchasedItems: parsed.data.input.excludePurchasedItems,
       };
     case "claim_early_risers":
       return { kind: parsed.data.name, id: parsed.data.id };
@@ -182,6 +198,7 @@ const intentPlanBoundarySchema = z
           state: z.literal("search"),
           query: z.string().min(1),
           timing: z.enum(["independent", "after_order"]),
+          excludePurchasedItems: z.boolean(),
         })
         .strict(),
     ]),
@@ -206,6 +223,14 @@ export function validateIntentPlan(input: unknown): IntentPlanValidation {
     parsed.data.product.state === "search"
     && parsed.data.product.timing === "after_order"
     && parsed.data.order.state === "none"
+  ) {
+    return { kind: "rejected", reason: "invalid_dependency" };
+  }
+  if (
+    parsed.data.order.state === "lookup"
+    && parsed.data.product.state === "search"
+    && parsed.data.product.excludePurchasedItems
+    && parsed.data.product.timing === "independent"
   ) {
     return { kind: "rejected", reason: "invalid_dependency" };
   }

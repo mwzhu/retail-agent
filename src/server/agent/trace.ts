@@ -7,6 +7,7 @@ import type {
   ToolName,
   ToolSpecVersion,
 } from "./capabilities";
+import type { CapabilityOutcome } from "./executor";
 
 type PlanningSummary = Readonly<{
   order: "none" | "lookup";
@@ -48,7 +49,7 @@ export type AgentTraceEvent =
       slot: IntentPlanSlot;
       call: ModelToolCall;
       durationMs: number;
-      resultKind: string;
+      outcome: CapabilityOutcome;
     }>
   | Readonly<{
       kind: "final.started";

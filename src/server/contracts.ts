@@ -70,7 +70,16 @@ export interface SierraStore {
   prepareRetry(conversationId: string): PrepareTurnResult;
   completeTurn(input: Readonly<{ sourceMessageId: string; content: string }>): ChatMessage;
   lookupOrder(input: Readonly<{ email: string; orderNumber: string }>): OrderLookupResult;
-  searchProducts(input: Readonly<{ query: string; limit: number }>): ProductSearchResult;
+  rememberOrderForConversation(input: Readonly<{
+    conversationId: string;
+    orderNumber: string;
+  }>): void;
+  getRememberedOrderProductSkus(conversationId: string): readonly string[];
+  searchProducts(input: Readonly<{
+    query: string;
+    limit: number;
+    excludeSkus: readonly string[];
+  }>): ProductSearchResult;
   claimPromotion(input: Readonly<{ conversationId: string; now: Date }>): PromotionResult;
   close(): void;
 }

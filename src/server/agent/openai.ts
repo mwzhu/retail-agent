@@ -169,7 +169,10 @@ function toOpenAIToolCall(call: ModelToolCall): ChatCompletionMessageFunctionToo
         type: "function",
         function: {
           name: call.kind,
-          arguments: JSON.stringify({ query: call.query }),
+          arguments: JSON.stringify({
+            query: call.query,
+            excludePurchasedItems: call.excludePurchasedItems,
+          }),
         },
       };
     case "claim_early_risers":

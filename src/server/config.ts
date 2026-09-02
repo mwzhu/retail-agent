@@ -14,8 +14,8 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().default("data/sierra.db"),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.enum(["gpt-4o", "gpt-4o-mini"]).default("gpt-4o"),
-  SIERRA_PLANNING_STRATEGY: planningStrategySchema.default("sequence"),
-  SIERRA_TOOL_SPEC: toolSpecVersionSchema.default("current"),
+  SIERRA_PLANNING_STRATEGY: planningStrategySchema.default("plan"),
+  SIERRA_TOOL_SPEC: toolSpecVersionSchema.default("guided"),
   SIERRA_TRACE_PATH: z.string().min(1).optional(),
 });
 

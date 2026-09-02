@@ -8,6 +8,7 @@ import {
   type GoldScenario,
   type GoldTurn,
   type MetricDirection,
+  type OutcomeExpectation,
   type ObservedToolCall,
   type ObservedTurnTrace,
   type PlanningStrategy,
@@ -18,6 +19,7 @@ import {
   type StudyMatrix,
   type ToolArgumentMap,
   type ToolName,
+  type ToolOutcomeMap,
   type ToolSpecVersion,
 } from "./types";
 
@@ -37,6 +39,7 @@ interface TurnScore {
   readonly matchedRequiredTools: number;
   readonly observedCalls: number;
   readonly correctlyMatchedArguments: number;
+  readonly correctlyMatchedOutcomes: number;
   readonly exactTrace: boolean;
   readonly isNoTool: boolean;
   readonly noToolCorrect: boolean;
@@ -57,6 +60,7 @@ const metricDirections: Readonly<Record<ScalarMetricName, MetricDirection>> = {
   exactTracePass: "higher",
   noToolAccuracy: "higher",
   argumentAccuracy: "higher",
+  outcomeAccuracy: "higher",
   dependencyAccuracy: "higher",
   duplicateRate: "lower",
   unsafeClaimRate: "lower",
@@ -129,7 +133,9 @@ function callMatchesRequirement(call: ObservedToolCall, requirement: CallRequire
         && argumentsMatch<"search_products">(
           requirement.arguments,
           call.arguments,
-          (expected, actual) => expected.query === actual.query,
+          (expected, actual) =>
+            expected.query === actual.query
+            && expected.excludePurchasedItems === actual.excludePurchasedItems,
         );
     case "claim_early_risers":
       return call.tool === "claim_early_risers"
@@ -137,6 +143,53 @@ function callMatchesRequirement(call: ObservedToolCall, requirement: CallRequire
           requirement.arguments,
           call.arguments,
           (_, actual) => Object.keys(actual).length === 0,
+        );
+  }
+}
+
+function outcomesEqual<Name extends ToolName>(
+  expected: ToolOutcomeMap[Name],
+  actual: ToolOutcomeMap[Name],
+): boolean {
+  return JSON.stringify(expected) === JSON.stringify(actual);
+}
+
+function outcomeMatches<Outcome>(
+  expectation: OutcomeExpectation<Outcome>,
+  observed: Outcome,
+  exactMatch: (expected: Outcome, actual: Outcome) => boolean,
+): boolean {
+  return expectation.kind === "exact"
+    ? exactMatch(expectation.value, observed)
+    : expectation.matches(observed);
+}
+
+function callOutcomeMatchesRequirement(
+  call: ObservedToolCall,
+  requirement: CallRequirement,
+): boolean {
+  if (call.tool !== requirement.tool || call.outcome.tool !== call.tool) return false;
+  switch (requirement.tool) {
+    case "lookup_order":
+      return call.tool === "lookup_order"
+        && outcomeMatches(
+          requirement.outcome,
+          call.outcome,
+          outcomesEqual<"lookup_order">,
+        );
+    case "search_products":
+      return call.tool === "search_products"
+        && outcomeMatches(
+          requirement.outcome,
+          call.outcome,
+          outcomesEqual<"search_products">,
+        );
+    case "claim_early_risers":
+      return call.tool === "claim_early_risers"
+        && outcomeMatches(
+          requirement.outcome,
+          call.outcome,
+          outcomesEqual<"claim_early_risers">,
         );
   }
 }
@@ -181,6 +234,13 @@ function scoreTurn(gold: GoldTurn, observed: ObservedTurnTrace): TurnScore {
     0,
   );
   const assignments = maximumArgumentMatching(slots, observed.calls);
+  const correctlyMatchedOutcomes = [...assignments.entries()].filter(([slotIndex, callIndex]) => {
+    const slot = slots[slotIndex];
+    const call = observed.calls[callIndex];
+    return slot !== undefined
+      && call !== undefined
+      && callOutcomeMatchesRequirement(call, slot.requirement);
+  }).length;
   const forbiddenCallObserved = observed.calls.some((call) => gold.forbiddenCalls.includes(call.tool));
   const countsExact = [...new Set([...expectedCounts.keys(), ...observedCounts.keys()])]
     .every((tool) => (expectedCounts.get(tool) ?? 0) === (observedCounts.get(tool) ?? 0));
@@ -204,6 +264,7 @@ function scoreTurn(gold: GoldTurn, observed: ObservedTurnTrace): TurnScore {
     call.tool === "claim_early_risers");
   const isMultiIntent = new Set(gold.requiredCalls.map((call) => call.tool)).size > 1;
   const argumentsComplete = assignments.size === slots.length;
+  const outcomesComplete = correctlyMatchedOutcomes === slots.length;
   const dependenciesComplete = satisfiedDependencies === gold.dependencies.length;
   const responseComplete = responseProbePasses === gold.responseProbes.length;
   const noUnexpectedCalls = countsExact && !forbiddenCallObserved;
@@ -213,7 +274,8 @@ function scoreTurn(gold: GoldTurn, observed: ObservedTurnTrace): TurnScore {
     matchedRequiredTools,
     observedCalls: observed.calls.length,
     correctlyMatchedArguments: assignments.size,
-    exactTrace: noUnexpectedCalls && argumentsComplete && dependenciesComplete,
+    correctlyMatchedOutcomes,
+    exactTrace: noUnexpectedCalls && argumentsComplete && outcomesComplete && dependenciesComplete,
     isNoTool: slots.length === 0,
     noToolCorrect: slots.length === 0 && observed.calls.length === 0,
     dependencyEdges: gold.dependencies.length,
@@ -225,7 +287,12 @@ function scoreTurn(gold: GoldTurn, observed: ObservedTurnTrace): TurnScore {
     responseProbePasses,
     isMultiIntent,
     multiIntentComplete:
-      isMultiIntent && noUnexpectedCalls && argumentsComplete && dependenciesComplete && responseComplete,
+      isMultiIntent
+      && noUnexpectedCalls
+      && argumentsComplete
+      && outcomesComplete
+      && dependenciesComplete
+      && responseComplete,
   };
 }
 
@@ -326,6 +393,10 @@ export function scoreCorpus(
     argumentAccuracy: rate(
       sum((score) => score.correctlyMatchedArguments),
       matchedToolCount,
+    ),
+    outcomeAccuracy: rate(
+      sum((score) => score.correctlyMatchedOutcomes),
+      sum((score) => score.correctlyMatchedArguments),
     ),
     dependencyAccuracy: rate(
       sum((score) => score.satisfiedDependencies),

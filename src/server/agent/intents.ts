@@ -1,5 +1,14 @@
-export function hasExplicitPromotionIntent(content: string): boolean {
-  const promotion = "early\\s+risers(?:\\s+(?:promotion|promo|discount))?";
+export function hasExplicitPromotionIntent(
+  content: string,
+  priorContext: readonly string[] = [],
+): boolean {
+  const namedPromotion = "early\\s+risers(?:\\s+(?:promotion|promo|discount))?";
+  const contextualPromotion = "(?:this|that|the)\\s+(?:promotion|promo|discount|deal)";
+  const priorNamesEarlyRisers = priorContext.some((message) =>
+    /\bearly\s+risers\b/i.test(message));
+  const promotion = priorNamesEarlyRisers
+    ? `(?:${namedPromotion}|${contextualPromotion})`
+    : namedPromotion;
   const refusal = new RegExp(
     `\\b(?:do\\s+not|don['’]?t|never)\\b[^.!?]{0,80}\\b(?:claim|receive|redeem|get|give|send)\\b[^.!?]{0,80}\\b${promotion}\\b`,
     "i",

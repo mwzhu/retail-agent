@@ -10,8 +10,10 @@ import type {
   CallRequirement,
   GoldScenario,
   GoldTurn,
+  OutcomeExpectation,
   ToolArgumentMap,
   ToolName,
+  ToolOutcomeMap,
 } from "./types";
 
 const toolNames = ["lookup_order", "search_products", "claim_early_risers"] as const;
@@ -28,6 +30,14 @@ function predicate<Arguments>(
   return { kind: "predicate", description, sample, matches };
 }
 
+function outcomePredicate<Outcome>(
+  description: string,
+  sample: Outcome,
+  matches: (outcome: Outcome) => boolean,
+): OutcomeExpectation<Outcome> {
+  return { kind: "predicate", description, sample, matches };
+}
+
 function normalizedOrderNumber(value: string): string {
   return value.replaceAll(/[^A-Za-z0-9]/g, "").toLocaleUpperCase();
 }
@@ -36,7 +46,17 @@ function orderRequirement(
   id: string,
   email: string,
   orderNumber: string,
+  options: Readonly<{
+    kind?: ToolOutcomeMap["lookup_order"]["kind"];
+    itemSkus?: readonly string[];
+  }> = {},
 ): CallRequirement {
+  const kind = options.kind ?? "found";
+  const sample = {
+    tool: "lookup_order" as const,
+    kind,
+    itemSkus: options.itemSkus ?? [],
+  };
   return {
     id,
     tool: "lookup_order",
@@ -48,22 +68,57 @@ function orderRequirement(
         arguments_.email.toLocaleLowerCase() === email.toLocaleLowerCase()
         && normalizedOrderNumber(arguments_.orderNumber) === normalizedOrderNumber(orderNumber),
     ),
+    outcome: outcomePredicate<ToolOutcomeMap["lookup_order"]>(
+      options.itemSkus === undefined
+        ? `an order result with kind ${kind}`
+        : `an order result with kind ${kind} and item SKUs ${options.itemSkus.join(", ")}`,
+      sample,
+      (outcome: ToolOutcomeMap["lookup_order"]) =>
+        outcome.kind === kind
+        && (options.itemSkus === undefined
+          || options.itemSkus.every((sku) => outcome.itemSkus.includes(sku))),
+    ),
   };
 }
 
-function searchRequirement(id: string, terms: readonly string[]): CallRequirement {
+function searchRequirement(
+  id: string,
+  terms: readonly string[],
+  options: Readonly<{
+    excludePurchasedItems?: boolean;
+    excludedSkus?: readonly string[];
+  }> = {},
+): CallRequirement {
+  const excludePurchasedItems = options.excludePurchasedItems ?? false;
   return {
     id,
     tool: "search_products",
     count: 1,
     arguments: predicate(
       `a non-empty query containing one of ${terms.map((term) => JSON.stringify(term)).join(", ")}`,
-      { query: terms.join(" ") },
-      ({ query }: ToolArgumentMap["search_products"]) => {
+      { query: terms.join(" "), excludePurchasedItems },
+      ({ query, excludePurchasedItems: observedExclusion }: ToolArgumentMap["search_products"]) => {
         const normalized = query.toLocaleLowerCase();
         return normalized.trim().length > 0
+          && observedExclusion === excludePurchasedItems
           && terms.some((term) => normalized.includes(term.toLocaleLowerCase()));
       },
+    ),
+    outcome: outcomePredicate<ToolOutcomeMap["search_products"]>(
+      options.excludedSkus === undefined
+        ? "a completed product search"
+        : `a completed product search excluding ${options.excludedSkus.join(", ")}`,
+      {
+        tool: "search_products",
+        kind: "matches",
+        productSkus: [],
+        excludedSkus: options.excludedSkus ?? [],
+      },
+      (outcome: ToolOutcomeMap["search_products"]) =>
+        outcome.kind === "matches"
+        && (options.excludedSkus === undefined
+          || options.excludedSkus.every((sku) => outcome.excludedSkus.includes(sku)))
+        && outcome.productSkus.every((sku) => !outcome.excludedSkus.includes(sku)),
     ),
   };
 }
@@ -73,10 +128,15 @@ function anySearchRequirement(id: string): CallRequirement {
     id,
     tool: "search_products",
     count: 1,
-    arguments: predicate(
+    arguments: predicate<ToolArgumentMap["search_products"]>(
       "a non-empty product query",
-      { query: "catalog" },
+      { query: "catalog", excludePurchasedItems: false },
       ({ query }: ToolArgumentMap["search_products"]) => query.trim().length > 0,
+    ),
+    outcome: outcomePredicate<ToolOutcomeMap["search_products"]>(
+      "a completed product search",
+      { tool: "search_products", kind: "matches", productSkus: [], excludedSkus: [] },
+      (outcome: ToolOutcomeMap["search_products"]) => outcome.kind === "matches",
     ),
   };
 }
@@ -87,6 +147,11 @@ function claimRequirement(id: string): CallRequirement {
     tool: "claim_early_risers",
     count: 1,
     arguments: exact({}),
+    outcome: outcomePredicate<ToolOutcomeMap["claim_early_risers"]>(
+      "an outside-window promotion result for the frozen clock",
+      { tool: "claim_early_risers", kind: "outside_window" },
+      (outcome: ToolOutcomeMap["claim_early_risers"]) => outcome.kind === "outside_window",
+    ),
   };
 }
 
@@ -183,7 +248,11 @@ const existingTraceGold: Readonly<Record<string, TraceGold>> = {
   "ORD-005/0": { calls: noCalls() },
   "ORD-006/0": { calls: noCalls() },
   "ORD-006/1": { calls: required([orderRequirement("order", "diana.evans@example.com", "W006")]) },
-  "ORD-007/0": { calls: required([orderRequirement("order", "jane.smith@example.com", "W001")]) },
+  "ORD-007/0": {
+    calls: required([
+      orderRequirement("order", "jane.smith@example.com", "W001", { kind: "not_found" }),
+    ]),
+  },
   "ORD-008/0": { calls: required([orderRequirement("order", "charlie.davis@example.com", "W005")]) },
   "ORD-009/0": { calls: required([orderRequirement("order", "diana.evans@example.com", "W006")]) },
   "ORD-010/0": { calls: required([orderRequirement("order", "john.doe@example.com", "W001")]) },
@@ -272,6 +341,20 @@ function predicateAcceptsSample(requirement: CallRequirement): boolean {
   }
 }
 
+function outcomePredicateAcceptsSample(requirement: CallRequirement): boolean {
+  switch (requirement.tool) {
+    case "lookup_order":
+      return requirement.outcome.kind !== "predicate"
+        || requirement.outcome.matches(requirement.outcome.sample);
+    case "search_products":
+      return requirement.outcome.kind !== "predicate"
+        || requirement.outcome.matches(requirement.outcome.sample);
+    case "claim_early_risers":
+      return requirement.outcome.kind !== "predicate"
+        || requirement.outcome.matches(requirement.outcome.sample);
+  }
+}
+
 const organicRoutingScenarios: readonly GoldScenario[] = [
   newScenario("RTE-001", "product", "Plural recommendation phrasing", [{
     prompt: "Could you give me some recommendations for a beginner snowboard trip?",
@@ -286,7 +369,14 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
     },
     {
       prompt: "What else would I like? Give me recommendations based on that order.",
-      ...required([searchRequirement("products", ["adventure", "outdoor", "energy", "food", "hiking"])]),
+      ...required([searchRequirement(
+        "products",
+        ["adventure", "outdoor", "energy", "food", "hiking"],
+        {
+          excludePurchasedItems: true,
+          excludedSkus: ["SOBP001", "SOWB004"],
+        },
+      )]),
       responseProbes: [
         includesOne("Offers a different catalog item", [
           "Crain's Summit Pro X Skis",
@@ -337,7 +427,14 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
     ...required(
       [
         orderRequirement("order", "john.doe@example.com", "W001"),
-        searchRequirement("products", ["adventure", "outdoor", "energy", "food", "hiking"]),
+        searchRequirement(
+          "products",
+          ["adventure", "outdoor", "energy", "food", "hiking", "different", "bought", "fits"],
+          {
+            excludePurchasedItems: true,
+            excludedSkus: ["SOBP001", "SOWB004"],
+          },
+        ),
       ],
       [{ beforeRequirementId: "order", afterRequirementId: "products" }],
     ),
@@ -347,10 +444,6 @@ const organicRoutingScenarios: readonly GoldScenario[] = [
         "Zack's Bulk Up Protein Bars",
         "Ishmeet's Jetpack",
         "Pol's Peregrine Pathfinder Plane",
-      ]),
-      excludes("Does not recommend items already ordered", [
-        "Bhavish's Backcountry Blaze Backpack",
-        "Beth's Caffeinated Energy Drink",
       ]),
     ],
   }]),
@@ -405,6 +498,11 @@ function validateCorpus(scenarios: readonly GoldScenario[]): void {
         requirementIds.add(requirement.id);
         if (!predicateAcceptsSample(requirement)) {
           throw new Error(`${scenario.id}/${turnIndex} has a predicate that rejects its sample.`);
+        }
+        if (!outcomePredicateAcceptsSample(requirement)) {
+          throw new Error(
+            `${scenario.id}/${turnIndex} has an outcome predicate that rejects its sample.`,
+          );
         }
       }
       const overlap = turn.forbiddenCalls.filter((tool) =>

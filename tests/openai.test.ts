@@ -41,6 +41,15 @@ describe("OpenAI tool routing", () => {
     ])).toEqual({ kind: "none" });
   });
 
+  it("routes an explicit promotion reference established in a prior turn", () => {
+    expect(selectToolDirective([
+      system,
+      { kind: "text", role: "user", content: "What is the Early Risers promotion?" },
+      { kind: "text", role: "assistant", content: "It runs from 8 to 10 AM Pacific." },
+      { kind: "text", role: "user", content: "Yes, give me this promotion right now." },
+    ])).toEqual({ kind: "required", name: "claim_early_risers" });
+  });
+
   it("prevents a duplicate call after the supported intent is handled", () => {
     expect(selectToolDirective([
       system,

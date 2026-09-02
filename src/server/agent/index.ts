@@ -6,7 +6,11 @@ export {
   createNdjsonTraceSink,
   noOpTraceSink,
 } from "./trace";
-export { createToolDefinitions, validateIntentPlan } from "./capabilities";
+export {
+  createIntentPlannerInstruction,
+  createToolDefinitions,
+  validateIntentPlan,
+} from "./capabilities";
 export { ModelClientError } from "./types";
 export type {
   ChatApplication,
@@ -29,6 +33,7 @@ export type {
 } from "./types";
 export type { AgentTraceEvent, AgentTraceSink } from "./trace";
 export type {
+  CapabilityOutcome,
   CapabilityExecutor,
   CapabilityExecutorFactory,
 } from "./executor";

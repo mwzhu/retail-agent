@@ -10,7 +10,6 @@ import type {
 import type { ChatMessage, Conversation } from "../src/shared/protocol";
 import {
   createChatApplication,
-  createDemoModelClient,
   ModelClientError,
   type ModelClient,
   type ModelMessage,
@@ -32,65 +31,16 @@ describe("Sierra brand voice", () => {
     expect(countOccurrences(FINAL_RESPONSE_INSTRUCTION, SIERRA_BRAND_VOICE_INSTRUCTION)).toBe(1);
   });
 
-  it("varies demo branding instead of adding the same emoji to every reply", async () => {
-    const messages = [
-      {
-        kind: "tool_result",
-        callId: "promotion-call",
-        name: "claim_early_risers",
-        content: JSON.stringify({ kind: "granted", code: "EARLY-TEST" }),
-      },
-      {
-        kind: "tool_result",
-        callId: "order-call",
-        name: "lookup_order",
-        content: JSON.stringify({
-          kind: "found",
-          statusSentence: "Order #W001 has been delivered.",
-          tracking: { kind: "tracked", url: "https://example.com/track" },
-        }),
-      },
-      {
-        kind: "tool_result",
-        callId: "malformed-call",
-        name: "lookup_order",
-        content: "{not-json",
-      },
-    ] satisfies readonly ModelMessage[];
-    const responses = await Promise.all(messages.map((message) => streamDemoResponse([message])));
-    const usedEmojis = responses.flatMap((response) => response.match(/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/gu) ?? []);
-
-    expect(responses.some((response) => !/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/u.test(response))).toBe(true);
-    expect(responses.at(-1)).not.toMatch(/(?:🏔️|🌲|🥾|🧭|⛺|🌄)/u);
-    expect(new Set(usedEmojis).size).toBeGreaterThanOrEqual(2);
-  });
-
-  it.each([
-    {
-      name: "a granted promotion",
-      message: {
-        kind: "tool_result",
-        callId: "promotion-call",
-        name: "claim_early_risers",
-        content: JSON.stringify({ kind: "granted", code: "EARLY-TEST" }),
-      } satisfies ModelMessage,
-      expectedText: "EARLY-TEST",
-    },
-    {
-      name: "a malformed tool result",
-      message: {
-        kind: "tool_result",
-        callId: "order-call",
-        name: "lookup_order",
-        content: "{not-json",
-      } satisfies ModelMessage,
-      expectedText: "could not read",
-    },
-  ])("keeps $name concise", async ({ message, expectedText }) => {
-    const response = await streamDemoResponse([message]);
-
-    expect(response).toContain(expectedText);
-    expect(response.length).toBeLessThan(240);
+  it("defines different tone rules for successful and unsuccessful replies", () => {
+    expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
+      "Most successful or neutral replies should include one short, natural outdoor flourish.",
+    );
+    expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
+      "Do not add one to every response.",
+    );
+    expect(SIERRA_BRAND_VOICE_INSTRUCTION).toContain(
+      "If any part of the response is a refusal, unavailable information, unsuccessful lookup, or other bad news, omit both the outdoor flourish and emoji.",
+    );
   });
 });
 
@@ -156,11 +106,21 @@ describe("ChatApplication", () => {
       plans: [
         {
           content: null,
-          calls: [{ kind: "search_products", id: "search-1", query: "hiking" }],
+          calls: [{
+            kind: "search_products",
+            id: "search-1",
+            query: "hiking",
+            excludePurchasedItems: false,
+          }],
         },
         {
           content: null,
-          calls: [{ kind: "search_products", id: "search-2", query: "camping" }],
+          calls: [{
+            kind: "search_products",
+            id: "search-2",
+            query: "camping",
+            excludePurchasedItems: false,
+          }],
         },
       ],
       onFinal: (messages) => {
@@ -179,8 +139,8 @@ describe("ChatApplication", () => {
     await drain(accepted.output);
 
     expect(store.productSearches).toEqual([
-      { query: "hiking", limit: 5 },
-      { query: "camping", limit: 1 },
+      { query: "hiking", limit: 5, excludeSkus: [] },
+      { query: "camping", limit: 1, excludeSkus: [] },
     ]);
     const returnedProducts = finalMessages
       .filter((message) => message.kind === "tool_result")
@@ -286,6 +246,150 @@ describe("ChatApplication", () => {
     ]);
   });
 
+  it("resolves an explicit promotion reference from the prior turn", async () => {
+    const store = new FakeStore();
+    const conversation = store.createConversation();
+    const model = createScriptedModel({
+      plans: [
+        { content: null, calls: [] },
+        {
+          content: null,
+          calls: [{ kind: "claim_early_risers", id: "contextual-promo" }],
+        },
+        { content: null, calls: [] },
+      ],
+      finalDeltas: ["Promotion response."],
+    });
+    const app = createChatApplication({
+      store,
+      model,
+      planningStrategy: "auto",
+      now: () => new Date("2026-08-31T16:00:00.000Z"),
+    });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "What is the Early Risers promotion?",
+    }, new AbortController().signal))).output);
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Yes, give me this promotion right now.",
+    }, new AbortController().signal))).output);
+
+    expect(store.promotionClaims).toEqual([{
+      conversationId: conversation.id,
+      now: new Date("2026-08-31T16:00:00.000Z"),
+    }]);
+  });
+
+  it("excludes purchased SKUs from an order-dependent product search", async () => {
+    const store = new FakeStore();
+    store.orderItems = [
+      { sku: "SOBP001", productName: "Backpack" },
+      { sku: "SOWB004", productName: "Energy Drink" },
+    ];
+    const conversation = store.createConversation();
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => ({
+        kind: "accepted",
+        plan: {
+          order: {
+            state: "lookup",
+            email: "john.doe@example.com",
+            orderNumber: "W001",
+          },
+          product: {
+            state: "search",
+            query: "outdoor adventure gear",
+            timing: "after_order",
+            excludePurchasedItems: true,
+          },
+          promotion: { state: "none" },
+        },
+      }),
+      streamFinal: async function* () {
+        yield "Try something different.";
+      },
+    };
+    const app = createChatApplication({ store, model, planningStrategy: "plan" });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Look up W001, then recommend something different from what I bought.",
+    }, new AbortController().signal))).output);
+
+    expect(store.productSearches).toEqual([{
+      query: "outdoor adventure gear",
+      limit: 5,
+      excludeSkus: ["SOBP001", "SOWB004"],
+    }]);
+  });
+
+  it("reuses verified order exclusions in a later recommendation turn", async () => {
+    const store = new FakeStore();
+    store.orderItems = [
+      { sku: "SOBP001", productName: "Backpack" },
+      { sku: "SOWB004", productName: "Energy Drink" },
+    ];
+    const conversation = store.createConversation();
+    const plans = [
+      {
+        order: {
+          state: "lookup" as const,
+          email: "john.doe@example.com",
+          orderNumber: "W001",
+        },
+        product: { state: "none" as const },
+        promotion: { state: "none" as const },
+      },
+      {
+        order: { state: "none" as const },
+        product: {
+          state: "search" as const,
+          query: "outdoor adventure gear",
+          timing: "independent" as const,
+          excludePurchasedItems: true,
+        },
+        promotion: { state: "none" as const },
+      },
+    ];
+    let planIndex = 0;
+    const model: ModelClient = {
+      selectTools: async () => ({ content: null, calls: [] }),
+      planIntents: async () => {
+        const plan = plans.at(planIndex);
+        planIndex += 1;
+        if (plan === undefined) return { kind: "rejected", reason: "invalid_shape" };
+        return { kind: "accepted", plan };
+      },
+      streamFinal: async function* () {
+        yield "Done.";
+      },
+    };
+    const app = createChatApplication({ store, model, planningStrategy: "plan" });
+
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "Where is W001 for john.doe@example.com?",
+    }, new AbortController().signal))).output);
+    await drain((await requireAccepted(app.openTurn({
+      kind: "new",
+      conversationId: conversation.id,
+      content: "What else should I buy based on that order?",
+    }, new AbortController().signal))).output);
+
+    expect(store.productSearches).toEqual([{
+      query: "outdoor adventure gear",
+      limit: 5,
+      excludeSkus: ["SOBP001", "SOWB004"],
+    }]);
+  });
+
   it("yields final text deltas and commits their exact concatenation", async () => {
     const store = new FakeStore();
     const conversation = store.createConversation();
@@ -364,6 +468,7 @@ describe("ChatApplication", () => {
               kind: "search_products",
               id: `search-${planningCalls}`,
               query: "gear",
+              excludePurchasedItems: false,
             },
           ],
         };
@@ -395,10 +500,16 @@ describe("ChatApplication", () => {
 class FakeStore implements SierraStore {
   readonly conversations = new Map<string, Conversation>();
   readonly orderLookups: Array<{ email: string; orderNumber: string }> = [];
-  readonly productSearches: Array<{ query: string; limit: number }> = [];
+  readonly productSearches: Array<{
+    query: string;
+    limit: number;
+    excludeSkus: readonly string[];
+  }> = [];
   readonly promotionClaims: Array<{ conversationId: string; now: Date }> = [];
+  readonly rememberedOrderConversations = new Set<string>();
   readonly completedContents: string[] = [];
   productBatches: ProductCard[][] = [];
+  orderItems: Array<{ sku: string; productName: string | null }> = [];
   #conversationSequence = 0;
   #messageSequence = 0;
 
@@ -495,11 +606,25 @@ class FakeStore implements SierraStore {
         number: "TRACK-1",
         url: "https://example.test/TRACK-1",
       },
-      items: [],
+      items: this.orderItems,
     };
   }
 
-  searchProducts(input: Readonly<{ query: string; limit: number }>): ProductSearchResult {
+  rememberOrderForConversation(input: Readonly<{ conversationId: string }>): void {
+    this.rememberedOrderConversations.add(input.conversationId);
+  }
+
+  getRememberedOrderProductSkus(conversationId: string): readonly string[] {
+    return this.rememberedOrderConversations.has(conversationId)
+      ? this.orderItems.map((item) => item.sku)
+      : [];
+  }
+
+  searchProducts(input: Readonly<{
+    query: string;
+    limit: number;
+    excludeSkus: readonly string[];
+  }>): ProductSearchResult {
     this.productSearches.push(input);
     return {
       kind: "matches",
@@ -609,15 +734,4 @@ function isProductSearchResult(value: unknown): value is ProductSearchResult {
 
 function countOccurrences(value: string, target: string): number {
   return value.split(target).length - 1;
-}
-
-async function streamDemoResponse(messages: readonly ModelMessage[]): Promise<string> {
-  let response = "";
-  for await (const delta of createDemoModelClient().streamFinal({
-    messages,
-    signal: new AbortController().signal,
-  })) {
-    response += delta;
-  }
-  return response;
 }

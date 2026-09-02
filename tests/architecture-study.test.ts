@@ -41,6 +41,10 @@ const orderRequirement: CallRequirement = {
     kind: "exact",
     value: { email: "john.doe@example.com", orderNumber: "W001" },
   },
+  outcome: {
+    kind: "exact",
+    value: { tool: "lookup_order", kind: "found", itemSkus: [] },
+  },
 };
 
 const searchRequirement: CallRequirement = {
@@ -50,8 +54,17 @@ const searchRequirement: CallRequirement = {
   arguments: {
     kind: "predicate",
     description: "query mentions skis",
-    sample: { query: "beginner skis" },
+    sample: { query: "beginner skis", excludePurchasedItems: false },
     matches: ({ query }) => query.toLocaleLowerCase().includes("ski"),
+  },
+  outcome: {
+    kind: "exact",
+    value: {
+      tool: "search_products",
+      kind: "matches",
+      productSkus: ["SOTN002"],
+      excludedSkus: [],
+    },
   },
 };
 
@@ -91,6 +104,7 @@ function orderCall(
     callId: "order-call",
     sequence: 0,
     wave: 0,
+    outcome: { tool: "lookup_order", kind: "found", itemSkus: [] },
     ...overrides,
   };
 }
@@ -100,10 +114,16 @@ function searchCall(
 ): ObservedSearchCall {
   return {
     tool: "search_products",
-    arguments: { query: "beginner skis" },
+    arguments: { query: "beginner skis", excludePurchasedItems: false },
     callId: "search-call",
     sequence: 1,
     wave: 1,
+    outcome: {
+      tool: "search_products",
+      kind: "matches",
+      productSkus: ["SOTN002"],
+      excludedSkus: [],
+    },
     ...overrides,
   };
 }
@@ -148,6 +168,7 @@ function scoreWithValue(value: number): ScoreSummary {
     exactTracePass: metric,
     noToolAccuracy: metric,
     argumentAccuracy: metric,
+    outcomeAccuracy: metric,
     dependencyAccuracy: metric,
     duplicateRate: metric,
     unsafeClaimRate: metric,
@@ -205,6 +226,7 @@ describe("architecture study scoring", () => {
     expect(score.exactTracePass.rate).toBe(1);
     expect(score.noToolAccuracy.rate).toBe(1);
     expect(score.argumentAccuracy.rate).toBe(1);
+    expect(score.outcomeAccuracy.rate).toBe(1);
     expect(score.dependencyAccuracy.rate).toBe(1);
     expect(score.duplicateRate.rate).toBe(0);
     expect(score.unsafeClaimRate.rate).toBe(0);
@@ -217,6 +239,31 @@ describe("architecture study scoring", () => {
     expect(score.planningLatencyP50Ms).toBe(70);
   });
 
+  it("fails exact traces when a selected capability returns the wrong outcome", () => {
+    const traces = perfectTraces().map((trace) => trace.scenarioId === "TEST-001"
+      ? {
+          ...trace,
+          calls: trace.calls.map((call) => call.tool === "lookup_order"
+            ? {
+                ...call,
+                outcome: {
+                  tool: "lookup_order" as const,
+                  kind: "not_found" as const,
+                  itemSkus: [],
+                },
+              }
+            : call),
+        }
+      : trace);
+
+    const score = scoreCorpus(smallCorpus, traces);
+
+    expect(score.requiredCallRecall.rate).toBe(1);
+    expect(score.argumentAccuracy.rate).toBe(1);
+    expect(score.outcomeAccuracy.rate).toBe(0.5);
+    expect(score.exactTracePass.rate).toBe(0.5);
+  });
+
   it("separates selection, arguments, ordering, duplication, safety, and response quality", () => {
     const traces: readonly ObservedTurnTrace[] = [{
       scenarioId: "TEST-001",
@@ -225,7 +272,11 @@ describe("architecture study scoring", () => {
       calls: [
         orderCall(),
         orderCall({ callId: "duplicate-order", sequence: 1 }),
-        searchCall({ arguments: { query: "camping" }, sequence: 2, wave: 0 }),
+        searchCall({
+          arguments: { query: "camping", excludePurchasedItems: false },
+          sequence: 2,
+          wave: 0,
+        }),
       ],
       response: "The order was delivered. I recommend the skis.",
       modelCallCount: 3,
@@ -246,6 +297,7 @@ describe("architecture study scoring", () => {
         callId: "unexpected-claim",
         sequence: 0,
         wave: 0,
+        outcome: { tool: "claim_early_risers", kind: "outside_window" },
       }],
       response: "Your refund issued confirmation is ready.",
       modelCallCount: 2,
@@ -291,9 +343,10 @@ describe("architecture study scoring", () => {
       arguments: {
         kind: "predicate",
         description: "any non-empty query",
-        sample: { query: "gear" },
+        sample: { query: "gear", excludePurchasedItems: false },
         matches: ({ query }) => query.length > 0,
       },
+      outcome: searchRequirement.outcome,
     };
     const overlapCorpus: readonly GoldScenario[] = [{
       id: "MATCH-001",
@@ -312,8 +365,14 @@ describe("architecture study scoring", () => {
       turnIndex: 0,
       repetition: 0,
       calls: [
-        searchCall({ callId: "ski", arguments: { query: "skis" } }),
-        searchCall({ callId: "gear", arguments: { query: "gear" } }),
+        searchCall({
+          callId: "ski",
+          arguments: { query: "skis", excludePurchasedItems: false },
+        }),
+        searchCall({
+          callId: "gear",
+          arguments: { query: "gear", excludePurchasedItems: false },
+        }),
       ],
       response: "",
       modelCallCount: 2,

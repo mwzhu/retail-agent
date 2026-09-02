@@ -1,4 +1,5 @@
 import type { Probe, ScenarioCategory } from "../agent-review/scenarios";
+import type { CapabilityOutcome } from "../../src/server/agent";
 
 export const planningStrategies = ["auto", "sequence", "plan"] as const;
 export const toolSpecVersions = ["current", "guided"] as const;
@@ -9,7 +10,10 @@ export type ToolName = "lookup_order" | "search_products" | "claim_early_risers"
 
 export interface ToolArgumentMap {
   readonly lookup_order: Readonly<{ email: string; orderNumber: string }>;
-  readonly search_products: Readonly<{ query: string }>;
+  readonly search_products: Readonly<{
+    query: string;
+    excludePurchasedItems: boolean;
+  }>;
   readonly claim_early_risers: Readonly<Record<string, never>>;
 }
 
@@ -29,12 +33,26 @@ export type ArgumentExpectation<Arguments> =
       matches: (arguments_: Arguments) => boolean;
     }>;
 
+export type ToolOutcomeMap = {
+  readonly [Name in ToolName]: Extract<CapabilityOutcome, { readonly tool: Name }>;
+};
+
+export type OutcomeExpectation<Outcome> =
+  | Readonly<{ kind: "exact"; value: Outcome }>
+  | Readonly<{
+      kind: "predicate";
+      description: string;
+      sample: Outcome;
+      matches: (outcome: Outcome) => boolean;
+    }>;
+
 export type CallRequirement = {
   readonly [Name in ToolName]: Readonly<{
     id: string;
     tool: Name;
     count: number;
     arguments: ArgumentExpectation<ToolArgumentMap[Name]>;
+    outcome: OutcomeExpectation<ToolOutcomeMap[Name]>;
   }>;
 }[ToolName];
 
@@ -58,11 +76,14 @@ export interface GoldScenario {
   readonly turns: readonly GoldTurn[];
 }
 
-export type ObservedToolCall = ToolInvocation & Readonly<{
-  callId: string;
-  sequence: number;
-  wave: number;
-}>;
+export type ObservedToolCall = {
+  readonly [Name in ToolName]: Extract<ToolInvocation, { readonly tool: Name }> & Readonly<{
+    callId: string;
+    sequence: number;
+    wave: number;
+    outcome: ToolOutcomeMap[Name];
+  }>;
+}[ToolName];
 
 export interface ObservedTurnTrace {
   readonly scenarioId: string;
@@ -98,6 +119,7 @@ export interface ScoreSummary {
   readonly exactTracePass: RateMetric;
   readonly noToolAccuracy: RateMetric;
   readonly argumentAccuracy: RateMetric;
+  readonly outcomeAccuracy: RateMetric;
   readonly dependencyAccuracy: RateMetric;
   readonly duplicateRate: RateMetric;
   readonly unsafeClaimRate: RateMetric;
@@ -135,6 +157,7 @@ export const scalarMetricNames = [
   "exactTracePass",
   "noToolAccuracy",
   "argumentAccuracy",
+  "outcomeAccuracy",
   "dependencyAccuracy",
   "duplicateRate",
   "unsafeClaimRate",

@@ -1,4 +1,5 @@
 import type {
+  OrderLookupResult,
   ProductCard,
   ProductSearchResult,
   PromotionResult,
@@ -14,11 +15,29 @@ const PROMOTION_WINDOW: "8:00-10:00 AM Pacific" = "8:00-10:00 AM Pacific";
 export interface CapabilityExecutionContext {
   readonly conversationId: string;
   readonly sourceContent: string;
+  readonly priorContents: readonly string[];
 }
+
+export type CapabilityOutcome =
+  | Readonly<{
+      tool: "lookup_order";
+      kind: OrderLookupResult["kind"];
+      itemSkus: readonly string[];
+    }>
+  | Readonly<{
+      tool: "search_products";
+      kind: ProductSearchResult["kind"];
+      productSkus: readonly string[];
+      excludedSkus: readonly string[];
+    }>
+  | Readonly<{
+      tool: "claim_early_risers";
+      kind: PromotionResult["kind"];
+    }>;
 
 export type CapabilityExecutionResult = Readonly<{
   content: string;
-  resultKind: string;
+  outcome: CapabilityOutcome;
 }>;
 
 export interface CapabilityExecutor {
@@ -45,10 +64,7 @@ export function createCapabilityExecutorFactory(input: Readonly<{
           productsRemaining,
         });
         productsRemaining = result.productsRemaining;
-        return {
-          content: JSON.stringify(result.value),
-          resultKind: readResultKind(result.value),
-        };
+        return { content: JSON.stringify(result.value), outcome: result.outcome };
       },
     };
   };
@@ -60,36 +76,66 @@ function executeCapability(input: Readonly<{
   store: SierraStore;
   now: () => Date;
   productsRemaining: number;
-}>): Readonly<{ value: unknown; productsRemaining: number }> {
+}>): Readonly<{
+  value: unknown;
+  outcome: CapabilityOutcome;
+  productsRemaining: number;
+}> {
   switch (input.call.kind) {
-    case "lookup_order":
+    case "lookup_order": {
+      const value = input.store.lookupOrder({
+        email: input.call.email,
+        orderNumber: input.call.orderNumber,
+      });
+      if (value.kind === "found") {
+        input.store.rememberOrderForConversation({
+          conversationId: input.context.conversationId,
+          orderNumber: value.orderNumber,
+        });
+      }
       return {
-        value: input.store.lookupOrder({
-          email: input.call.email,
-          orderNumber: input.call.orderNumber,
-        }),
+        value,
+        outcome: {
+          tool: input.call.kind,
+          kind: value.kind,
+          itemSkus: value.kind === "found" ? value.items.map((item) => item.sku) : [],
+        },
         productsRemaining: input.productsRemaining,
       };
+    }
     case "search_products": {
+      const excludedSkus = input.call.excludePurchasedItems
+        ? input.store.getRememberedOrderProductSkus(input.context.conversationId)
+        : [];
       const value = searchProductsWithinBudget({
         store: input.store,
         query: input.call.query,
         productsRemaining: input.productsRemaining,
+        excludeSkus: excludedSkus,
       });
       return {
         value: value.result,
+        outcome: {
+          tool: input.call.kind,
+          kind: value.result.kind,
+          productSkus: value.result.products.map((product) => product.sku),
+          excludedSkus,
+        },
         productsRemaining: value.productsRemaining,
       };
     }
-    case "claim_early_risers":
+    case "claim_early_risers": {
+      const value = claimPromotionWithExplicitIntent({
+        store: input.store,
+        context: input.context,
+        now: input.now,
+      });
       return {
-        value: claimPromotionWithExplicitIntent({
-          store: input.store,
-          context: input.context,
-          now: input.now,
-        }),
+        value,
+        outcome: { tool: input.call.kind, kind: value.kind },
         productsRemaining: input.productsRemaining,
       };
+    }
     default: {
       const exhaustive: never = input.call;
       return exhaustive;
@@ -101,6 +147,7 @@ function searchProductsWithinBudget(input: Readonly<{
   store: SierraStore;
   query: string;
   productsRemaining: number;
+  excludeSkus: readonly string[];
 }>): Readonly<{ result: ProductSearchResult; productsRemaining: number }> {
   if (input.productsRemaining === 0) {
     return {
@@ -112,6 +159,7 @@ function searchProductsWithinBudget(input: Readonly<{
   const result = input.store.searchProducts({
     query: input.query,
     limit: input.productsRemaining,
+    excludeSkus: input.excludeSkus,
   });
   const products = result.products.slice(0, input.productsRemaining).map(projectProduct);
   return {
@@ -135,18 +183,14 @@ function claimPromotionWithExplicitIntent(input: Readonly<{
   context: CapabilityExecutionContext;
   now: () => Date;
 }>): PromotionResult {
-  if (!hasExplicitPromotionIntent(input.context.sourceContent)) {
+  if (!hasExplicitPromotionIntent(
+    input.context.sourceContent,
+    input.context.priorContents,
+  )) {
     return { kind: "not_explicit", window: PROMOTION_WINDOW };
   }
   return input.store.claimPromotion({
     conversationId: input.context.conversationId,
     now: input.now(),
   });
-}
-
-function readResultKind(value: unknown): string {
-  if (typeof value !== "object" || value === null || !("kind" in value)) {
-    return "unknown";
-  }
-  return typeof value.kind === "string" ? value.kind : "unknown";
 }

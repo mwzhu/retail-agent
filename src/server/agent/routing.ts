@@ -34,7 +34,8 @@ export function selectToolDirective(messages: readonly ModelMessage[]): ToolDire
     return { kind: "required", name: "search_products" };
   }
 
-  const promotionIntent = hasExplicitPromotionIntent(currentRequest);
+  const priorContext = userMessages.slice(0, -1).map((message) => message.content);
+  const promotionIntent = hasExplicitPromotionIntent(currentRequest, priorContext);
   if (promotionIntent && !completedTools.has("claim_early_risers")) {
     return { kind: "required", name: "claim_early_risers" };
   }

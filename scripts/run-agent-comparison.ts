@@ -23,6 +23,8 @@ import {
 } from "./architecture-study/types";
 import {
   createToolDefinitions,
+  createIntentPlannerInstruction,
+  type CapabilityOutcome,
   type AgentTraceEvent,
   type AgentTraceSink,
   type ModelToolCall,
@@ -37,6 +39,23 @@ import {
 
 const FIXED_NOW = "2026-08-31T20:00:00.000Z";
 const LABELS = ["cedar", "granite", "lichen", "river", "talus", "willow"] as const;
+const FROZEN_SOURCE_PATHS = [
+  "scripts/architecture-study/corpus.ts",
+  "scripts/architecture-study/metrics.ts",
+  "scripts/architecture-study/report.ts",
+  "scripts/architecture-study/types.ts",
+  "scripts/run-agent-comparison.ts",
+  "src/server/agent/application.ts",
+  "src/server/agent/capabilities.ts",
+  "src/server/agent/executor.ts",
+  "src/server/agent/intents.ts",
+  "src/server/agent/openai.ts",
+  "src/server/agent/prompt.ts",
+  "src/server/agent/routing.ts",
+  "src/server/agent/trace.ts",
+  "src/server/contracts.ts",
+  "src/server/data/store.ts",
+] as const;
 
 interface Cell {
   readonly strategy: PlanningStrategy;
@@ -129,6 +148,13 @@ function sha256(value: string | Uint8Array): string {
 
 async function fileHash(path: string): Promise<string> {
   return sha256(await readFile(path));
+}
+
+async function frozenSourceSnapshot(): Promise<Readonly<Record<string, string>>> {
+  return Object.fromEntries(await Promise.all(FROZEN_SOURCE_PATHS.map(async (path) => [
+    path,
+    await fileHash(resolve(path)),
+  ])));
 }
 
 function createClock(): ServerClock {
@@ -229,32 +255,51 @@ function toolExecutionDuration(events: readonly AgentTraceEvent[]): number {
   return [...ranges.values()].reduce((total, range) => total + range.end - range.start, 0);
 }
 
-function observedCall(call: ModelToolCall, sequence: number, wave: number): ObservedToolCall {
+function observedCall(
+  call: ModelToolCall,
+  outcome: CapabilityOutcome,
+  sequence: number,
+  wave: number,
+): ObservedToolCall {
   switch (call.kind) {
-    case "lookup_order":
+    case "lookup_order": {
+      if (outcome.tool !== call.kind) throw new Error("Order call returned a mismatched outcome.");
       return {
         tool: call.kind,
         arguments: { email: call.email, orderNumber: call.orderNumber },
         callId: call.id,
         sequence,
         wave,
+        outcome,
       };
-    case "search_products":
+    }
+    case "search_products": {
+      if (outcome.tool !== call.kind) throw new Error("Search call returned a mismatched outcome.");
       return {
         tool: call.kind,
-        arguments: { query: call.query },
+        arguments: {
+          query: call.query,
+          excludePurchasedItems: call.excludePurchasedItems,
+        },
         callId: call.id,
         sequence,
         wave,
+        outcome,
       };
-    case "claim_early_risers":
+    }
+    case "claim_early_risers": {
+      if (outcome.tool !== call.kind) {
+        throw new Error("Promotion call returned a mismatched outcome.");
+      }
       return {
         tool: call.kind,
         arguments: {},
         callId: call.id,
         sequence,
         wave,
+        outcome,
       };
+    }
     default: {
       const exhaustive: never = call;
       return exhaustive;
@@ -281,7 +326,7 @@ function toObservation(input: Readonly<{
     turnIndex: input.turnIndex,
     repetition: input.repetition,
     calls: executions.map((event, sequence) =>
-      observedCall(event.call, sequence, event.batch)),
+      observedCall(event.call, event.outcome, sequence, event.batch)),
     response: input.response.response,
     modelCallCount: input.events.filter((event) =>
       event.kind === "planning.completed" || event.kind === "final.completed").length,
@@ -404,6 +449,7 @@ async function main(): Promise<void> {
   await rm(tempDirectory, { recursive: true, force: true });
   await assertPathAbsent(outputDirectory);
   await mkdir(tempDirectory, { recursive: true });
+  const sourceHashes = await frozenSourceSnapshot();
 
   const cellOrders = Array.from({ length: repetitions }, (_, repetition) =>
     seededCellOrder(cells, `${runId}:${repetition}`));
@@ -425,6 +471,10 @@ async function main(): Promise<void> {
       }));
     }
   }
+  const sourceHashesAfterRun = await frozenSourceSnapshot();
+  if (JSON.stringify(sourceHashesAfterRun) !== JSON.stringify(sourceHashes)) {
+    throw new Error("A frozen study source changed while the comparison was running.");
+  }
 
   const observations: StudyCellObservation[] = cells.map((cell) => ({
     ...cell,
@@ -442,6 +492,7 @@ async function main(): Promise<void> {
     model: baseConfig.model,
     temperature: 0,
     gitRevision: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    sourceHashes,
     fixtureHashes: {
       orders: await fileHash(baseConfig.ordersPath),
       products: await fileHash(baseConfig.productsPath),
@@ -457,6 +508,10 @@ async function main(): Promise<void> {
     toolSpecHashes: Object.fromEntries(toolSpecVersions.map((version) => [
       version,
       sha256(JSON.stringify(createToolDefinitions(version))),
+    ])),
+    intentPlannerInstructionHashes: Object.fromEntries(toolSpecVersions.map((version) => [
+      version,
+      sha256(createIntentPlannerInstruction(version)),
     ])),
     scenarioIds: corpus.map((scenario) => scenario.id),
     cellOrders: cellOrders.map((order) => order.map(cellKey)),
@@ -479,7 +534,7 @@ async function main(): Promise<void> {
     `Turns per cell per repetition: ${corpus.reduce((total, scenario) => total + scenario.turns.length, 0)}`,
     `Fixed clock: ${FIXED_NOW}`,
     "",
-    "Only planning strategy and capability-description version vary. The original auto cell keeps provider parallel tool calls disabled; only the structured planner executes independent capabilities concurrently.",
+    "Only planning strategy and capability-description version vary. The controlled auto cell keeps provider parallel tool calls disabled; only the structured planner executes independent capabilities concurrently. It shares the current runtime's round cap, temperature, and prompts, so it is not a byte-for-byte replay of the original implementation.",
     "",
     report.markdown,
   ].join("\n")}\n`;
